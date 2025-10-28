@@ -23,7 +23,7 @@ Para compilar e rodar este projeto, você precisará de:
 
 1.  Clone este repositório:
     ```bash
-    git clone [https://github.com/Artur-Antunes-1/Jogo_AED.git](https://github.com/Artur-Antunes-1/Jogo_AED.git)
+    git clone https://github.com/Artur-Antunes-1/Jogo_AED.git
     ```
 2.  Navegue até a pasta raiz do projeto.
 3.  Execute o seguinte comando no seu terminal para compilar:
@@ -56,19 +56,22 @@ Após a compilação, o `meujogo.exe` estará na pasta `/build`. O jogo também 
 ---
 
 ## 📁 Estrutura do Projeto
+
+```plaintext
 JogoC&SDL/
-├── .gitignore # Arquivos a serem ignorados pelo Git 
-├── README.md # Este arquivo 
-├── src/ 
-│ └── main.c # Código-fonte principal do jogo 
-├── lib/ 
-│ ├── bin/ 
-│ │ └── SDL3.dll # DLL necessária para rodar o jogo 
-│ ├── include/ 
-│ │ └── SDL3/ # Arquivos de cabeçalho (.h) do SDL3 
-│ └── lib/ 
-│ └── ... # Arquivos de link (.a) do SDL3 
-└── build/ # (Ignorada) Onde os executáveis são compilados
+├── .gitignore   # Arquivos a serem ignorados pelo Git
+├── README.md    # Este arquivo
+├── src/
+│   └── main.c   # Código-fonte principal do jogo
+├── lib/
+│   ├── bin/
+│   │   └── SDL3.dll # DLL necessária para rodar o jogo
+│   ├── include/
+│   │   └── SDL3/    # Arquivos de cabeçalho (.h) do SDL3
+│   └── lib/
+│       └── ...      # Arquivos de link (.a) do SDL3
+└── build/           # (Ignorada) Onde os executáveis são compilados
+```
 
 ---
 
