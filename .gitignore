@@ -1,0 +1,19 @@
+# Pasta de build (ignora meujogo.exe, SDL3.dll, etc.)
+/build/
+
+# Arquivos de objeto compilados (caso você os compile fora do build)
+*.o
+*.obj
+
+# Executáveis
+*.exe
+
+# Configurações do editor (ex: VSCode)
+.vscode/
+
+# Arquivos de sistema do Windows
+Thumbs.db
+desktop.ini
+
+# Arquivos de sistema do macOS
+.DS_Store
