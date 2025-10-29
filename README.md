@@ -29,18 +29,18 @@ Para compilar e rodar este projeto, você precisará de:
 3.  Execute o seguinte comando no seu terminal para compilar:
 
     ```bash
-    gcc src/main.c -o build/meujogo.exe -Ilib/include -Llib/lib -lSDL3 -mwindows
+    gcc src/main.c -o build/meujogo.exe -Ilib/include -Llib/lib -lSDL3 -lSDL3_ttf -mwindows
     ```
 
 ---
 
 ## 🏃 Como Rodar
 
-Após a compilação, o `meujogo.exe` estará na pasta `/build`. O jogo também precisa do arquivo `SDL3.dll` para rodar, que já está incluído no repositório.
+Após a compilação, o `meujogo.exe` estará na pasta `/build`. O jogo também precisa dos arquivos `SDL3.dll` e `SDL3_ttf.dll` para rodar, que já está incluído no repositório.
 
-1.  **Copie o arquivo `SDL3.dll`** da pasta `/lib/bin/`.
-2.  **Cole-o** na sua pasta `/build/` (ao lado do `meujogo.exe` que você acabou de compilar).
-3.  Execute o jogo (pelo terminal ou dando dois cliques):
+1.  Este repositório já inclui as DLLs em `/lib/bin/`.
+2.  **Copie os arquivos `SDL3.dll` e `SDL3_ttf.dll`** da pasta `/lib/bin/`.
+3.  **Cole-os** na sua pasta `/build/`...
 
     ```bash
     ./build/meujogo.exe
