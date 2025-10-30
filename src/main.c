@@ -4,6 +4,10 @@
 #include <time.h>
 #include <stdio.h>
 #include <string.h>
+// --- NOVOS INCLUDES PARA IA ---
+#include "config.h"     // Para a API_KEY (src/config.h)
+#include <curl/curl.h>  // Para libcurl (rede)
+#include "cJSON.h"      // Para cJSON (ler a resposta)
 
 // --- NOVO: Constantes de Tela ---
 #define MAX_INPUT_LENGTH 50
@@ -167,8 +171,197 @@ void quickSortStrings(const char* arr[], int low, int high) {
     }
 }
 
+// ######################################################
+// ### NOVAS FUNÇÕES DE REDE E IA (LIBCURL + CJSON)   ###
+// ######################################################
 
-// --- LÓGICA DO ESTADO: JOGANDO (COM LISTA CIRCULAR) ---
+// Estrutura para guardar a resposta da web
+struct MemoryStruct {
+    char *memory;
+    size_t size;
+};
+
+// Função de callback que o cURL usa para escrever os dados recebidos na memória
+static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
+    size_t realsize = size * nmemb;
+    struct MemoryStruct *mem = (struct MemoryStruct *)userp;
+
+    char *ptr = (char*)realloc(mem->memory, mem->size + realsize + 1);
+    if(ptr == NULL) {
+        printf("Erro: falha ao alocar memória (realloc)\n");
+        return 0;
+    }
+
+    mem->memory = ptr;
+    memcpy(&(mem->memory[mem->size]), contents, realsize);
+    mem->size += realsize;
+    mem->memory[mem->size] = 0;
+
+    return realsize;
+}
+
+// A função principal da IA! (VERSÃO DE DIAGNÓSTICO)
+char* call_gemini_api(const char* prompt) {
+    CURL *curl;
+    CURLcode res;
+    struct MemoryStruct chunk;
+    char* response_text = NULL;
+
+    chunk.memory = (char*)malloc(1); // Começa com 1 byte
+    chunk.size = 0;
+
+    // curl_global_init já foi chamado no main()
+    curl = curl_easy_init();
+    if(!curl) {
+        fprintf(stderr, "Erro ao iniciar o cURL\n");
+        free(chunk.memory);
+        return NULL;
+    }
+
+    // 1. Monta a URL da API (incluindo a chave do config.h)
+    char api_url[200];
+    
+    // --- MUDANÇA BEM AQUI ---
+    // Trocamos 'gemini-1.5-flash-latest' por 'gemini-pro'
+    sprintf(api_url, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=%s", API_KEY);
+    // -------------------------
+
+    // 2. Monta o corpo JSON da requisição (usando cJSON para segurança)
+    cJSON *json_payload = cJSON_CreateObject();
+    cJSON *contents = cJSON_CreateArray();
+    cJSON *part_obj = cJSON_CreateObject();
+    cJSON *parts_array = cJSON_CreateArray();
+    cJSON *text_obj = cJSON_CreateObject();
+    
+    cJSON_AddStringToObject(text_obj, "text", prompt);
+    cJSON_AddItemToArray(parts_array, text_obj);
+    cJSON_AddItemToObject(part_obj, "parts", parts_array);
+    cJSON_AddItemToArray(contents, part_obj);
+    cJSON_AddItemToObject(json_payload, "contents", contents);
+    
+    char *json_string = cJSON_Print(json_payload); // JSON como string
+
+    // 3. Monta os cabeçalhos (headers)
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+
+    // 4. Configura o cURL
+    curl_easy_setopt(curl, CURLOPT_URL, api_url);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_string);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "libcurl-agent/1.0");
+    
+    // Mantém a linha de "pular o SSL" por enquanto
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+
+    // 5. Executa a requisição
+    res = curl_easy_perform(curl);
+
+    // 6. Verifica por erros
+    if(res != CURLE_OK) {
+        fprintf(stderr, "curl_easy_perform() falhou: %s\n", curl_easy_strerror(res));
+    } else {
+        // Imprime a resposta JSON bruta
+        printf("\n--- RESPOSTA JSON BRUTA DO SERVIDOR ---\n");
+        printf("%s\n", chunk.memory);
+        printf("---------------------------------------\n\n");
+
+        // 7. Analisa o JSON da resposta.
+        cJSON *json_response = cJSON_Parse(chunk.memory);
+        if (json_response == NULL) {
+            fprintf(stderr, "Erro ao analisar JSON: %s\n", cJSON_GetErrorPtr());
+        } else {
+            // Verifica se a API retornou um ERRO
+            cJSON *error = cJSON_GetObjectItem(json_response, "error");
+            if (error) {
+                cJSON *errorMessage = cJSON_GetObjectItem(error, "message");
+                if (cJSON_IsString(errorMessage)) {
+                    fprintf(stderr, "ERRO DA API: %s\n", errorMessage->valuestring);
+                } else {
+                    fprintf(stderr, "ERRO DA API: (Formato de erro desconhecido)\n");
+                }
+            } else {
+                // Tenta analisar a resposta de SUCESSO
+                cJSON *candidates = cJSON_GetObjectItem(json_response, "candidates");
+                if (cJSON_IsArray(candidates)) {
+                    cJSON *candidate = cJSON_GetArrayItem(candidates, 0);
+                    if (candidate) {
+                        cJSON *content = cJSON_GetObjectItem(candidate, "content");
+                        cJSON *parts = cJSON_GetObjectItem(content, "parts");
+                        if (cJSON_IsArray(parts)) {
+                            cJSON *part = cJSON_GetArrayItem(parts, 0);
+                            cJSON *text = cJSON_GetObjectItem(part, "text");
+                            if (cJSON_IsString(text) && (text->valuestring != NULL)) {
+                                // SUCESSO!
+                                response_text = strdup(text->valuestring);
+                            }
+                        }
+                    }
+                }
+            }
+            cJSON_Delete(json_response);
+        }
+    }
+
+    // 7. Limpeza
+    curl_easy_cleanup(curl);
+    curl_slist_free_all(headers);
+    free(json_string);
+    cJSON_Delete(json_payload);
+    free(chunk.memory);
+
+    return response_text; // Retorna a string de texto (ou NULL)
+}
+
+void list_available_models() {
+    CURL *curl;
+    CURLcode res;
+    struct MemoryStruct chunk;
+
+    printf("Verificando modelos de IA disponíveis...\n");
+
+    chunk.memory = (char*)malloc(1);
+    chunk.size = 0;
+
+    curl = curl_easy_init();
+    if(!curl) {
+        fprintf(stderr, "Erro ao iniciar o cURL\n");
+        free(chunk.memory);
+        return;
+    }
+
+    // 1. Monta a URL da API (ListModels)
+    char api_url[200];
+    sprintf(api_url, "https://generativelanguage.googleapis.com/v1beta/models?key=%s", API_KEY);
+
+    // 2. Configura o cURL (é um GET, não precisa de payload JSON)
+    curl_easy_setopt(curl, CURLOPT_URL, api_url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "libcurl-agent/1.0");
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L); // Mantém o bypass
+
+    // 3. Executa
+    res = curl_easy_perform(curl);
+
+    // 4. Imprime o resultado
+    if(res != CURLE_OK) {
+        fprintf(stderr, "list_models() falhou: %s\n", curl_easy_strerror(res));
+    } else {
+        printf("\n--- LISTA DE MODELOS DISPONÍVEIS (JSON) ---\n");
+        printf("%s\n", chunk.memory);
+        printf("----------------------------------------------\n\n");
+    }
+
+    // 5. Limpeza
+    curl_easy_cleanup(curl);
+    free(chunk.memory);
+}
+
+// --- LÓGICA DO ESTADO: ---
+// --- LÓGICA DO ESTADO: JOGANDO (IA + LISTA CIRCULAR) ---
 GameState runPlaying(GameContext* context) {
     SDL_Renderer* renderer = context->renderer;
 
@@ -198,15 +391,41 @@ GameState runPlaying(GameContext* context) {
 
     char chosenLetter;
     if (poolCount == 0) { 
-        // Mostra erro (agora centralizado)
+        // ... (código de erro igual ao seu) ...
+        return STATE_MENU;
+    }
+    chosenLetter = letterPool[rand() % poolCount];
+
+    // ----- NOVO: IA GERA TEMAS -----
+    char prompt[256];
+    sprintf(prompt, "Crie %d temas criativos para um jogo de Adedonha com a letra %c. "
+                    "Responda APENAS com os %d temas, separados por vírgula, sem quebra de linha, sem espaços extras. "
+                    "Exemplo: Algo salgado,Animal que voa,Filme de terror,Cor,Objeto", NUM_THEMES, chosenLetter, NUM_THEMES);
+    
+    // Mostra uma tela de "Carregando..."
+    SDL_Texture* loadingTexture = NULL;
+    SDL_FRect loadingRect;
+    createTextTexture(context, 1, "Sorteando temas com a IA...", &loadingTexture, &loadingRect, 0, 300, white);
+    loadingRect.x = (SCREEN_WIDTH - loadingRect.w) / 2;
+    SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255);
+    SDL_RenderClear(renderer);
+    SDL_RenderTexture(renderer, loadingTexture, NULL, &loadingRect);
+    SDL_RenderPresent(renderer);
+    SDL_DestroyTexture(loadingTexture);
+
+    // Chama a API
+    char* ai_response = call_gemini_api(prompt);
+
+    if (ai_response == NULL) {
+        // Mostra erro
         SDL_Texture* errTexture = NULL;
         SDL_FRect errRect;
-        createTextTexture(context, 1, "Erro: Nenhuma letra ativada!", &errTexture, &errRect, 0, 300, red);
+        createTextTexture(context, 1, "Erro: Falha ao contatar a IA.", &errTexture, &errRect, 0, 300, red);
         errRect.x = (SCREEN_WIDTH - errRect.w) / 2;
         
         SDL_Texture* helpTexture = NULL;
         SDL_FRect helpRect;
-        createTextTexture(context, 0, "Vá em 'Opções' para ativar.", &helpTexture, &helpRect, 0, 360, white);
+        createTextTexture(context, 0, "Verifique sua API Key ou conexão.", &helpTexture, &helpRect, 0, 360, white);
         helpRect.x = (SCREEN_WIDTH - helpRect.w) / 2;
         
         SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255);
@@ -219,35 +438,27 @@ GameState runPlaying(GameContext* context) {
         SDL_DestroyTexture(helpTexture);
         return STATE_MENU;
     }
-    chosenLetter = letterPool[rand() % poolCount];
 
-    // ----- Sorteio de Temas -----
-    const char* masterThemeList[] = {
-        "Nome", "Animal", "Fruta", "Cor", "Objeto", "CEP", 
-        "Carro", "Profissão", "Verbo", "Comida", "Parte do Corpo"
-    };
-    int themeCount = sizeof(masterThemeList) / sizeof(masterThemeList[0]);
+    // Processa a resposta da IA (ex: "Animal,Cor,Fruta,Objeto,Profissão")
     const char* chosenThemes[NUM_THEMES];
-    int chosenIndexes[NUM_THEMES] = {-1, -1, -1, -1, -1};
-    for (int i = 0; i < NUM_THEMES; i++) {
-        int newIndex;
-        int isRepeated;
-        do {
-            isRepeated = 0;
-            newIndex = rand() % themeCount;
-            for (int j = 0; j < i; j++) {
-                if (chosenIndexes[j] == newIndex) {
-                    isRepeated = 1;
-                    break;
-                }
-            }
-        } while (isRepeated);
-        chosenThemes[i] = masterThemeList[newIndex];
-        chosenIndexes[i] = newIndex;
+    int themeCount = 0;
+    char* token = strtok(ai_response, ","); 
+    while (token != NULL && themeCount < NUM_THEMES) {
+        while (*token == ' ') token++; // Remove espaços no início
+        chosenThemes[themeCount] = token;
+        themeCount++;
+        token = strtok(NULL, ",");
     }
+    
+    // Se a IA não retornou 5 temas, preenche com "Erro"
+    for (int i = themeCount; i < NUM_THEMES; i++) {
+        chosenThemes[i] = "Erro da IA";
+    }
+
+    // ----- REQ. 4: Ordena os temas recebidos da IA -----
     quickSortStrings(chosenThemes, 0, NUM_THEMES - 1);
 
-    // ----- Preparação das Texturas e Inputs (AGORA COM LISTA CIRCULAR) -----
+    // ----- Preparação das Texturas e Inputs (COM LISTA CIRCULAR) -----
     SDL_Texture* letterTexture = NULL;
     SDL_FRect letterRect;
     char letterText[30];
@@ -269,41 +480,31 @@ GameState runPlaying(GameContext* context) {
     float textPaddingY = 10.0f;
 
     for (int i = 0; i < NUM_THEMES; i++) {
-        // Aloca o novo nó
         currentInput = (InputNode*)malloc(sizeof(InputNode));
-        if (!currentInput) { 
-            SDL_Log("Erro: Falha ao alocar memória para InputNode %d", i);
-            // Limpeza parcial (liberar nós já criados) - Implementação omitida por brevidade
-            return STATE_EXIT; 
-        }
-        currentInput->next = NULL; // Importante inicializar
+        if (!currentInput) { return STATE_EXIT; }
+        currentInput->next = NULL;
 
-        // Inicializa o campo dentro do nó
         InputField* field = &(currentInput->field);
         strcpy(field->text, "");
         field->texture = NULL;
         field->labelTexture = NULL;
 
-        // Cria a Label
         char label[100];
-        sprintf(label, "%s:", chosenThemes[i]);
+        sprintf(label, "%s:", chosenThemes[i]); // Usa o tema da IA
         createTextTexture(context, 0, label, 
                           &(field->labelTexture), &(field->labelRect), 
                           (int)labelX, (int)(inputYStart + (i * inputSpacing) + textPaddingY), gray);
         
-        // Define a posição da caixa cinza
         field->inputBoxRect.x = inputX;
         field->inputBoxRect.y = inputYStart + (i * inputSpacing);
         field->inputBoxRect.w = inputWidth;
         field->inputBoxRect.h = inputHeight;
         
-        // Define a posição inicial do texto (dentro da caixa)
         field->rect.x = inputX + 10;
         field->rect.y = inputYStart + (i * inputSpacing) + textPaddingY;
         field->rect.w = 0;
         field->rect.h = 0;
 
-        // Conecta o nó na lista
         if (headInput == NULL) {
             headInput = currentInput;
         } else {
@@ -311,14 +512,12 @@ GameState runPlaying(GameContext* context) {
         }
         prevInput = currentInput;
     }
-    // Fecha o círculo
     if (prevInput != NULL) {
         prevInput->next = headInput;
     }
     // --- FIM DA CRIAÇÃO DA LISTA ---
 
-    InputNode* activeNode = headInput; // O nó ativo começa no primeiro
-
+    InputNode* activeNode = headInput;
     SDL_StartTextInput(context->window);
 
     // ----- Game Loop (Playing) -----
@@ -326,15 +525,15 @@ GameState runPlaying(GameContext* context) {
     SDL_Event event;
     GameState nextState = STATE_MENU; 
 
-    // Garante que activeNode não é NULL antes de entrar no loop (caso NUM_THEMES seja 0)
     if (activeNode == NULL) {
         SDL_Log("Erro: Lista de Inputs vazia.");
-        return STATE_MENU; // Ou STATE_EXIT
+        running_playing = 0;
     }
 
     while (running_playing) {
         int textChanged = 0;
-        // 1. Eventos
+        
+        // 1. Eventos (IGUAL AO SEU CÓDIGO)
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT) {
                 nextState = STATE_EXIT; running_playing = 0;
@@ -347,17 +546,14 @@ GameState runPlaying(GameContext* context) {
                     nextState = STATE_SCORING; running_playing = 0;
                 }
                 else if (event.key.key == SDLK_BACKSPACE && strlen(activeNode->field.text) > 0) {
-                    // Modifica o texto no NÓ ATIVO
                     activeNode->field.text[strlen(activeNode->field.text) - 1] = '\0';
                     textChanged = 1;
                 }
                 else if (event.key.key == SDLK_TAB) {
-                    // Navegação com a Lista Circular
                     activeNode = activeNode->next;
                 }
             }
             else if (event.type == SDL_EVENT_TEXT_INPUT) {
-                 // Modifica o texto no NÓ ATIVO
                 if (strlen(activeNode->field.text) + strlen(event.text.text) < MAX_INPUT_LENGTH) {
                     strcat(activeNode->field.text, event.text.text);
                     textChanged = 1;
@@ -365,7 +561,7 @@ GameState runPlaying(GameContext* context) {
             }
         }
 
-        // 2. Lógica (Update)
+        // 2. Lógica (Update) (IGUAL AO SEU CÓDIGO)
         Uint64 elapsedMs = SDL_GetTicks() - startTime;
         int secondsLeft = (int)((ROUND_DURATION_MS - elapsedMs) / 1000);
 
@@ -374,43 +570,32 @@ GameState runPlaying(GameContext* context) {
             nextState = STATE_SCORING;
             running_playing = 0;
         }
-
         if (secondsLeft != lastSecond) {
             sprintf(timerText, "Tempo: %d", secondsLeft);
             createTextTexture(context, 1, timerText, &timerTexture, &timerRect, 0, topRowY, white);
             timerRect.x = SCREEN_WIDTH - timerRect.w - 50;
             lastSecond = secondsLeft;
         }
-        
         if (textChanged) {
-            // Recria a textura do NÓ ATIVO
             createTextTexture(context, 0, activeNode->field.text, 
                               &(activeNode->field.texture), &(activeNode->field.rect), 
                               (int)(activeNode->field.inputBoxRect.x + 10), 
                               (int)(activeNode->field.inputBoxRect.y + textPaddingY), white);
         }
 
-        // 3. Renderização
+        // 3. Renderização (IGUAL AO SEU CÓDIGO)
         SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255);
         SDL_RenderClear(renderer);
-
         SDL_RenderTexture(renderer, letterTexture, NULL, &letterRect);
         SDL_RenderTexture(renderer, timerTexture, NULL, &timerRect); 
         
-        // --- Percorre a Lista Circular para Desenhar ---
         InputNode* tempNode = headInput;
         do {
-            InputField* field = &(tempNode->field); // Ponteiro para o campo atual
-
-            // Desenha a "Caixa de Texto"
+            InputField* field = &(tempNode->field);
             SDL_SetRenderDrawColor(renderer, inputBg.r, inputBg.g, inputBg.b, inputBg.a);
             SDL_RenderFillRect(renderer, &(field->inputBoxRect));
-            
-            // Desenha a etiqueta (Label) e o Texto
             SDL_RenderTexture(renderer, field->labelTexture, NULL, &(field->labelRect));
             SDL_RenderTexture(renderer, field->texture, NULL, &(field->rect));
-
-            // Desenha o cursor SE for o nó ativo
             if (tempNode == activeNode) {
                 SDL_FRect cursorRect;
                 if (strlen(field->text) == 0) {
@@ -418,16 +603,14 @@ GameState runPlaying(GameContext* context) {
                 } else {
                     cursorRect.x = field->rect.x + field->rect.w + 5;
                 }
-                cursorRect.y = field->inputBoxRect.y + (field->inputBoxRect.h - 30) / 2; // Centraliza cursor
+                cursorRect.y = field->inputBoxRect.y + (field->inputBoxRect.h - 30) / 2;
                 cursorRect.w = 10;
                 cursorRect.h = 30;
-                
                 SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
                 SDL_RenderFillRect(renderer, &cursorRect);
             }
-            tempNode = tempNode->next; // Vai para o próximo nó
-        } while (tempNode != headInput); // Continua até voltar ao início
-        // --- FIM DO DESENHO DA LISTA ---
+            tempNode = tempNode->next;
+        } while (tempNode != headInput);
         
         SDL_RenderPresent(renderer);
     }
@@ -438,7 +621,8 @@ GameState runPlaying(GameContext* context) {
         InputNode* tempNode = headInput;
         int i = 0;
         do {
-             strcpy(context->lastThemes[i], chosenThemes[i]); // Pega o tema na ordem (já ordenado)
+             // Copia o tema (que está na memória da IA) para o contexto
+             strcpy(context->lastThemes[i], chosenThemes[i]); 
              strcpy(context->lastAnswers[i], tempNode->field.text); // Pega a resposta do nó
              tempNode = tempNode->next;
              i++;
@@ -451,24 +635,24 @@ GameState runPlaying(GameContext* context) {
     SDL_DestroyTexture(timerTexture); 
     
     InputNode* currentNode = headInput;
-    if (currentNode) { // Verifica se a lista não está vazia
+    if (currentNode) {
         InputNode* nextNode;
-        currentNode = headInput; // Garante começar do head
+        InputNode* firstNode = headInput;
+        currentNode = headInput;
         do {
             nextNode = currentNode->next;
-            // Libera as texturas DENTRO do nó
             if (currentNode->field.texture) SDL_DestroyTexture(currentNode->field.texture);
             if (currentNode->field.labelTexture) SDL_DestroyTexture(currentNode->field.labelTexture);
-            // Libera o nó em si
             free(currentNode);
             currentNode = nextNode;
-        } while (currentNode != headInput); // Continua até voltar ao início (ou até ter liberado todos)
+        } while (currentNode != firstNode);
     }
-    // --- FIM DA LIMPEZA DA LISTA ---
+
+    // --- LIBERA A MEMÓRIA DA RESPOSTA DA IA ---
+    free(ai_response); // Muito importante!
 
     return nextState; 
 }
-
 // --- LÓGICA DO ESTADO: PONTUAÇÃO (LAYOUT 1280x720) ---
 GameState runScoring(GameContext* context) {
     SDL_Renderer* renderer = context->renderer;
@@ -841,6 +1025,8 @@ int main(int argc, char* argv[]) {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) { return 1; }
     if (TTF_Init() == -1) { return 1; }
 
+    curl_global_init(CURL_GLOBAL_ALL);
+
     GameContext context;
     // --- NOVO: Tela 1280x720 ---
     context.window = SDL_CreateWindow("Adedonha (Stop!) - Projeto AED", 1280, 720, 0);
@@ -865,6 +1051,8 @@ int main(int argc, char* argv[]) {
     updateScore(&(context.leaderboard), "CPU 1", 50);
     updateScore(&(context.leaderboard), "Jogador", 20);
     updateScore(&(context.leaderboard), "CPU 2", 80);
+
+    // list_available_models(); // Chama a função de diagnóstico
 
     // O Loop de Estado Principal
     GameState currentState = STATE_MENU;
@@ -894,6 +1082,9 @@ int main(int argc, char* argv[]) {
 
     // Limpeza Global
     freeList(&(context.leaderboard));
+
+    curl_global_cleanup();
+
     TTF_CloseFont(context.font_title);
     TTF_CloseFont(context.font_body);
     TTF_Quit();

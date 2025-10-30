@@ -44,7 +44,7 @@ Para compilar e rodar este projeto, você precisará de:
 3.  Execute o seguinte comando no seu terminal para compilar:
 
     ```bash
-    gcc src/main.c -o build/meujogo.exe -Ilib/include -Llib/lib -lSDL3 -lSDL3_ttf -mwindows
+    gcc src/main.c src/cJSON.c -o build/meujogo.exe -Ilib/include -Llib/lib -lSDL3 -lSDL3_ttf -lcurl -lm -mwindows
     ```
 
 ---
@@ -53,7 +53,7 @@ Para compilar e rodar este projeto, você precisará de:
 
 Após a compilação, o `meujogo.exe` estará na pasta `/build`. O jogo precisa das DLLs das bibliotecas para rodar.
 
-1.  **Copie os arquivos `SDL3.dll` e `SDL3_ttf.dll`** da pasta `/lib/bin/`.
+1.  **Copie os arquivos `SDL3.dll`, `SDL3_ttf.dll` e `libcurl-x64.dll`** da pasta `/lib/bin/`.
 2.  **Cole-os** na sua pasta `/build/` (ao lado do `meujogo.exe` que você acabou de compilar).
 3.  Certifique-se de que o arquivo `font.ttf` está na pasta raiz (`JogoC&SDL/`).
 4.  Execute o jogo (pelo terminal ou dando dois cliques):
@@ -96,6 +96,7 @@ JogoC&SDL/
 │   ├── bin/
 │   │   ├── SDL3.dll       # DLL principal do SDL
 │   │   └── SDL3_ttf.dll   # DLL da biblioteca de fontes
+│   │   └── libcurl-x64.dll
 │   ├── include/
 │   │   └── SDL3/          # Arquivos de cabeçalho (.h) do SDL e SDL_ttf
 │   └── lib/
