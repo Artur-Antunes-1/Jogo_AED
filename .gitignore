@@ -17,3 +17,7 @@ desktop.ini
 
 # Arquivos de sistema do macOS
 .DS_Store local_include/
+.DS_Store
+
+# Ignora o arquivo que contém a chave de API
+src/config.h
