@@ -4,12 +4,16 @@
 #include <time.h>
 #include <stdio.h>
 #include <string.h>
+
+// --- NOVO INCLUDE: Para 'strncasecmp' (ignorar maiúsculas/minúsculas) ---
+#include <strings.h> 
+
 // --- NOVOS INCLUDES PARA IA ---
 #include "config.h"     // Para a API_KEY (src/config.h)
 #include <curl/curl.h>  // Para libcurl (rede)
 #include "cJSON.h"      // Para cJSON (ler a resposta)
 
-// --- NOVO: Constantes de Tela ---
+// --- Constantes de Tela ---
 #define MAX_INPUT_LENGTH 50
 #define NUM_THEMES 5
 #define SCREEN_WIDTH 1280
@@ -172,7 +176,7 @@ void quickSortStrings(const char* arr[], int low, int high) {
 }
 
 // ######################################################
-// ### NOVAS FUNÇÕES DE REDE E IA (LIBCURL + CJSON)   ###
+// ### FUNÇÕES DE REDE E IA (LIBCURL + CJSON)         ###
 // ######################################################
 
 // Estrutura para guardar a resposta da web
@@ -200,7 +204,7 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, voi
     return realsize;
 }
 
-// A função principal da IA! (VERSÃO DE DIAGNÓSTICO)
+// A função principal da IA!
 char* call_gemini_api(const char* prompt) {
     CURL *curl;
     CURLcode res;
@@ -210,7 +214,6 @@ char* call_gemini_api(const char* prompt) {
     chunk.memory = (char*)malloc(1); // Começa com 1 byte
     chunk.size = 0;
 
-    // curl_global_init já foi chamado no main()
     curl = curl_easy_init();
     if(!curl) {
         fprintf(stderr, "Erro ao iniciar o cURL\n");
@@ -218,15 +221,9 @@ char* call_gemini_api(const char* prompt) {
         return NULL;
     }
 
-    // 1. Monta a URL da API (incluindo a chave do config.h)
     char api_url[200];
-    
-    // --- MUDANÇA BEM AQUI ---
-    // Trocamos 'gemini-1.5-flash-latest' por 'gemini-pro'
     sprintf(api_url, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=%s", API_KEY);
-    // -------------------------
 
-    // 2. Monta o corpo JSON da requisição (usando cJSON para segurança)
     cJSON *json_payload = cJSON_CreateObject();
     cJSON *contents = cJSON_CreateArray();
     cJSON *part_obj = cJSON_CreateObject();
@@ -241,49 +238,36 @@ char* call_gemini_api(const char* prompt) {
     
     char *json_string = cJSON_Print(json_payload); // JSON como string
 
-    // 3. Monta os cabeçalhos (headers)
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Content-Type: application/json");
 
-    // 4. Configura o cURL
     curl_easy_setopt(curl, CURLOPT_URL, api_url);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_string);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "libcurl-agent/1.0");
-    
-    // Mantém a linha de "pular o SSL" por enquanto
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L); // Mantém o bypass do SSL
 
-    // 5. Executa a requisição
     res = curl_easy_perform(curl);
 
-    // 6. Verifica por erros
     if(res != CURLE_OK) {
         fprintf(stderr, "curl_easy_perform() falhou: %s\n", curl_easy_strerror(res));
     } else {
-        // Imprime a resposta JSON bruta
-        printf("\n--- RESPOSTA JSON BRUTA DO SERVIDOR ---\n");
-        printf("%s\n", chunk.memory);
-        printf("---------------------------------------\n\n");
-
-        // 7. Analisa o JSON da resposta.
+        // (Opcional) Imprime a resposta bruta para depuração
+        // printf("\n--- RESPOSTA JSON BRUTA DO SERVIDOR ---\n%s\n---------------------------------------\n\n", chunk.memory);
+        
         cJSON *json_response = cJSON_Parse(chunk.memory);
         if (json_response == NULL) {
             fprintf(stderr, "Erro ao analisar JSON: %s\n", cJSON_GetErrorPtr());
         } else {
-            // Verifica se a API retornou um ERRO
             cJSON *error = cJSON_GetObjectItem(json_response, "error");
             if (error) {
                 cJSON *errorMessage = cJSON_GetObjectItem(error, "message");
                 if (cJSON_IsString(errorMessage)) {
                     fprintf(stderr, "ERRO DA API: %s\n", errorMessage->valuestring);
-                } else {
-                    fprintf(stderr, "ERRO DA API: (Formato de erro desconhecido)\n");
                 }
             } else {
-                // Tenta analisar a resposta de SUCESSO
                 cJSON *candidates = cJSON_GetObjectItem(json_response, "candidates");
                 if (cJSON_IsArray(candidates)) {
                     cJSON *candidate = cJSON_GetArrayItem(candidates, 0);
@@ -294,7 +278,6 @@ char* call_gemini_api(const char* prompt) {
                             cJSON *part = cJSON_GetArrayItem(parts, 0);
                             cJSON *text = cJSON_GetObjectItem(part, "text");
                             if (cJSON_IsString(text) && (text->valuestring != NULL)) {
-                                // SUCESSO!
                                 response_text = strdup(text->valuestring);
                             }
                         }
@@ -305,73 +288,58 @@ char* call_gemini_api(const char* prompt) {
         }
     }
 
-    // 7. Limpeza
     curl_easy_cleanup(curl);
     curl_slist_free_all(headers);
     free(json_string);
     cJSON_Delete(json_payload);
     free(chunk.memory);
 
-    return response_text; // Retorna a string de texto (ou NULL)
+    return response_text;
 }
 
+// --- Função de diagnóstico (pode ser removida mais tarde) ---
 void list_available_models() {
     CURL *curl;
     CURLcode res;
     struct MemoryStruct chunk;
 
     printf("Verificando modelos de IA disponíveis...\n");
-
     chunk.memory = (char*)malloc(1);
     chunk.size = 0;
-
     curl = curl_easy_init();
-    if(!curl) {
-        fprintf(stderr, "Erro ao iniciar o cURL\n");
-        free(chunk.memory);
-        return;
-    }
+    if(!curl) { /* ... */ return; }
 
-    // 1. Monta a URL da API (ListModels)
     char api_url[200];
     sprintf(api_url, "https://generativelanguage.googleapis.com/v1beta/models?key=%s", API_KEY);
-
-    // 2. Configura o cURL (é um GET, não precisa de payload JSON)
     curl_easy_setopt(curl, CURLOPT_URL, api_url);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "libcurl-agent/1.0");
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L); // Mantém o bypass
-
-    // 3. Executa
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     res = curl_easy_perform(curl);
-
-    // 4. Imprime o resultado
     if(res != CURLE_OK) {
         fprintf(stderr, "list_models() falhou: %s\n", curl_easy_strerror(res));
     } else {
-        printf("\n--- LISTA DE MODELOS DISPONÍVEIS (JSON) ---\n");
-        printf("%s\n", chunk.memory);
-        printf("----------------------------------------------\n\n");
+        printf("\n--- LISTA DE MODELOS DISPONÍVEIS (JSON) ---\n%s\n----------------------------------------------\n\n", chunk.memory);
     }
-
-    // 5. Limpeza
     curl_easy_cleanup(curl);
     free(chunk.memory);
 }
 
-// --- LÓGICA DO ESTADO: ---
-// --- LÓGICA DO ESTADO: JOGANDO (IA + LISTA CIRCULAR) ---
+// --- LÓGICA DO ESTADO: JOGANDO (CORRIGIDO) ---
 GameState runPlaying(GameContext* context) {
     SDL_Renderer* renderer = context->renderer;
 
     const Uint64 ROUND_DURATION_MS = 60000;
-    Uint64 startTime = SDL_GetTicks(); 
-
+    
+    // --- Variáveis do Timer (inicializadas mais tarde) ---
+    Uint64 startTime;
     SDL_Texture* timerTexture = NULL;
     SDL_FRect timerRect;
     char timerText[20];
-    int lastSecond = -1;
+    int lastSecond = 61; // Força a atualização no primeiro frame
+
+    // --- Cores ---
     SDL_Color white = {255, 255, 255, 255};
     SDL_Color gray = {200, 200, 200, 255};
     SDL_Color red = {255, 50, 50, 255};
@@ -391,18 +359,41 @@ GameState runPlaying(GameContext* context) {
 
     char chosenLetter;
     if (poolCount == 0) { 
-        // ... (código de erro igual ao seu) ...
+        // Mostra erro (agora centralizado)
+        SDL_Texture* errTexture = NULL;
+        SDL_FRect errRect;
+        createTextTexture(context, 1, "Erro: Nenhuma letra ativada!", &errTexture, &errRect, 0, 300, red);
+        errRect.x = (SCREEN_WIDTH - errRect.w) / 2;
+        
+        SDL_Texture* helpTexture = NULL;
+        SDL_FRect helpRect;
+        createTextTexture(context, 0, "Vá em 'Opções' para ativar.", &helpTexture, &helpRect, 0, 360, white);
+        helpRect.x = (SCREEN_WIDTH - helpRect.w) / 2;
+        
+        SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255);
+        SDL_RenderClear(renderer);
+        SDL_RenderTexture(renderer, errTexture, NULL, &errRect);
+        SDL_RenderTexture(renderer, helpTexture, NULL, &helpRect);
+        SDL_RenderPresent(renderer);
+        SDL_Delay(3000);
+        SDL_DestroyTexture(errTexture);
+        SDL_DestroyTexture(helpTexture);
         return STATE_MENU;
     }
     chosenLetter = letterPool[rand() % poolCount];
 
     // ----- NOVO: IA GERA TEMAS -----
-    char prompt[256];
-    sprintf(prompt, "Crie %d temas criativos para um jogo de Adedonha com a letra %c. "
-                    "Responda APENAS com os %d temas, separados por vírgula, sem quebra de linha, sem espaços extras. "
-                    "Exemplo: Algo salgado,Animal que voa,Filme de terror,Cor,Objeto", NUM_THEMES, chosenLetter, NUM_THEMES);
+    char prompt[512]; // Aumenta o tamanho do prompt
     
-    // Mostra uma tela de "Carregando..."
+    // --- CORREÇÃO (Problema 4): Prompt Melhorado ---
+    sprintf(prompt, "Crie %d temas para um jogo de Adedonha (Stop!) com a letra %c. "
+                    "IMPORTANTE: Para cada tema, garanta que exista pelo menos uma resposta óbvia e comum em português com a letra %c. "
+                    "Não peça por temas impossíveis (como 'Oceano com K'). "
+                    "Responda APENAS com os %d temas, separados por vírgula, sem quebra de linha, sem espaços extras. "
+                    "Exemplo: Algo salgado,Animal que voa,Filme de terror,Cor,Objeto", 
+                    NUM_THEMES, chosenLetter, chosenLetter, NUM_THEMES);
+    
+    // Mostra tela de "Carregando..."
     SDL_Texture* loadingTexture = NULL;
     SDL_FRect loadingRect;
     createTextTexture(context, 1, "Sorteando temas com a IA...", &loadingTexture, &loadingRect, 0, 300, white);
@@ -439,45 +430,45 @@ GameState runPlaying(GameContext* context) {
         return STATE_MENU;
     }
 
-    // Processa a resposta da IA (ex: "Animal,Cor,Fruta,Objeto,Profissão")
+    // Processa a resposta da IA
     const char* chosenThemes[NUM_THEMES];
     int themeCount = 0;
     char* token = strtok(ai_response, ","); 
     while (token != NULL && themeCount < NUM_THEMES) {
-        while (*token == ' ') token++; // Remove espaços no início
+        while (*token == ' ') token++; // Remove espaços
         chosenThemes[themeCount] = token;
         themeCount++;
         token = strtok(NULL, ",");
     }
-    
-    // Se a IA não retornou 5 temas, preenche com "Erro"
-    for (int i = themeCount; i < NUM_THEMES; i++) {
-        chosenThemes[i] = "Erro da IA";
-    }
+    for (int i = themeCount; i < NUM_THEMES; i++) { chosenThemes[i] = "Erro da IA"; }
 
-    // ----- REQ. 4: Ordena os temas recebidos da IA -----
     quickSortStrings(chosenThemes, 0, NUM_THEMES - 1);
 
-    // ----- Preparação das Texturas e Inputs (COM LISTA CIRCULAR) -----
+    // ----- Preparação das Texturas e Inputs (Lista Circular) -----
     SDL_Texture* letterTexture = NULL;
     SDL_FRect letterRect;
     char letterText[30];
     sprintf(letterText, "Letra Sorteada: %c", chosenLetter);
-    int topRowY = 50;
+    int topRowY = 50; // Y da linha superior
     createTextTexture(context, 1, letterText, &letterTexture, &letterRect, 50, topRowY, white);
 
-    // --- Criação da Lista Circular de Inputs ---
+    // --- CORREÇÃO (Problema 1): Layout Melhorado ---
     InputNode* headInput = NULL;
     InputNode* currentInput = NULL;
     InputNode* prevInput = NULL;
 
     float inputYStart = 150.0f;
     float inputHeight = 50.0f;
-    float inputSpacing = 70.0f;
-    float labelX = 100.0f;
-    float inputX = 350.0f;
-    float inputWidth = 700.0f;
-    float textPaddingY = 10.0f;
+    float inputSpacing = 80.0f; // Mais espaço vertical
+    float labelX = 50.0f;       // Labels mais à esquerda
+    float inputX = 400.0f;      // Caixas de input mais à direita
+    float inputWidth = 800.0f;  // Caixas mais largas
+    
+    // --- LINHA CORRIGIDA (Ambos os erros) ---
+    // 1. O nome da variável é 'textPaddingY' (com 't')
+    // 2. A função correta é 'TTF_GetFontHeight'
+    float textPaddingY = (inputHeight - TTF_GetFontHeight(context->font_body)) / 2.0f; // Centraliza texto verticalmente
+    // ------------------------------------
 
     for (int i = 0; i < NUM_THEMES; i++) {
         currentInput = (InputNode*)malloc(sizeof(InputNode));
@@ -490,7 +481,7 @@ GameState runPlaying(GameContext* context) {
         field->labelTexture = NULL;
 
         char label[100];
-        sprintf(label, "%s:", chosenThemes[i]); // Usa o tema da IA
+        sprintf(label, "%s:", chosenThemes[i]);
         createTextTexture(context, 0, label, 
                           &(field->labelTexture), &(field->labelRect), 
                           (int)labelX, (int)(inputYStart + (i * inputSpacing) + textPaddingY), gray);
@@ -505,35 +496,29 @@ GameState runPlaying(GameContext* context) {
         field->rect.w = 0;
         field->rect.h = 0;
 
-        if (headInput == NULL) {
-            headInput = currentInput;
-        } else {
-            prevInput->next = currentInput;
-        }
+        if (headInput == NULL) { headInput = currentInput; }
+        else { prevInput->next = currentInput; }
         prevInput = currentInput;
     }
-    if (prevInput != NULL) {
-        prevInput->next = headInput;
-    }
-    // --- FIM DA CRIAÇÃO DA LISTA ---
+    if (prevInput != NULL) { prevInput->next = headInput; }
 
     InputNode* activeNode = headInput;
     SDL_StartTextInput(context->window);
 
     // ----- Game Loop (Playing) -----
+    
+    // --- CORREÇÃO (Problema 2): Inicia o timer AGORA ---
+    startTime = SDL_GetTicks();
+
     int running_playing = 1;
     SDL_Event event;
     GameState nextState = STATE_MENU; 
 
-    if (activeNode == NULL) {
-        SDL_Log("Erro: Lista de Inputs vazia.");
-        running_playing = 0;
-    }
+    if (activeNode == NULL) { running_playing = 0; }
 
     while (running_playing) {
         int textChanged = 0;
-        
-        // 1. Eventos (IGUAL AO SEU CÓDIGO)
+        // 1. Eventos (Lógica da Lista Circular)
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT) {
                 nextState = STATE_EXIT; running_playing = 0;
@@ -561,8 +546,8 @@ GameState runPlaying(GameContext* context) {
             }
         }
 
-        // 2. Lógica (Update) (IGUAL AO SEU CÓDIGO)
-        Uint64 elapsedMs = SDL_GetTicks() - startTime;
+        // 2. Lógica (Update)
+        Uint64 elapsedMs = SDL_GetTicks() - startTime; // Agora está correto
         int secondsLeft = (int)((ROUND_DURATION_MS - elapsedMs) / 1000);
 
         if (elapsedMs >= ROUND_DURATION_MS) {
@@ -570,12 +555,15 @@ GameState runPlaying(GameContext* context) {
             nextState = STATE_SCORING;
             running_playing = 0;
         }
+        if (secondsLeft < 0) secondsLeft = 0; // Garante que não fique negativo
+
         if (secondsLeft != lastSecond) {
             sprintf(timerText, "Tempo: %d", secondsLeft);
             createTextTexture(context, 1, timerText, &timerTexture, &timerRect, 0, topRowY, white);
-            timerRect.x = SCREEN_WIDTH - timerRect.w - 50;
+            timerRect.x = SCREEN_WIDTH - timerRect.w - 50; // Alinha à direita
             lastSecond = secondsLeft;
         }
+        
         if (textChanged) {
             createTextTexture(context, 0, activeNode->field.text, 
                               &(activeNode->field.texture), &(activeNode->field.rect), 
@@ -583,9 +571,10 @@ GameState runPlaying(GameContext* context) {
                               (int)(activeNode->field.inputBoxRect.y + textPaddingY), white);
         }
 
-        // 3. Renderização (IGUAL AO SEU CÓDIGO)
+        // 3. Renderização
         SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255);
         SDL_RenderClear(renderer);
+
         SDL_RenderTexture(renderer, letterTexture, NULL, &letterRect);
         SDL_RenderTexture(renderer, timerTexture, NULL, &timerRect); 
         
@@ -596,6 +585,7 @@ GameState runPlaying(GameContext* context) {
             SDL_RenderFillRect(renderer, &(field->inputBoxRect));
             SDL_RenderTexture(renderer, field->labelTexture, NULL, &(field->labelRect));
             SDL_RenderTexture(renderer, field->texture, NULL, &(field->rect));
+
             if (tempNode == activeNode) {
                 SDL_FRect cursorRect;
                 if (strlen(field->text) == 0) {
@@ -621,9 +611,8 @@ GameState runPlaying(GameContext* context) {
         InputNode* tempNode = headInput;
         int i = 0;
         do {
-             // Copia o tema (que está na memória da IA) para o contexto
-             strcpy(context->lastThemes[i], chosenThemes[i]); 
-             strcpy(context->lastAnswers[i], tempNode->field.text); // Pega a resposta do nó
+             strcpy(context->lastThemes[i], chosenThemes[i]);
+             strcpy(context->lastAnswers[i], tempNode->field.text);
              tempNode = tempNode->next;
              i++;
         } while(tempNode != headInput && i < NUM_THEMES);
@@ -647,27 +636,92 @@ GameState runPlaying(GameContext* context) {
             currentNode = nextNode;
         } while (currentNode != firstNode);
     }
-
+    
     // --- LIBERA A MEMÓRIA DA RESPOSTA DA IA ---
-    free(ai_response); // Muito importante!
+    free(ai_response);
 
     return nextState; 
 }
-// --- LÓGICA DO ESTADO: PONTUAÇÃO (LAYOUT 1280x720) ---
+
+
+// --- LÓGICA DO ESTADO: PONTUAÇÃO (COM IA JUIZ) ---
 GameState runScoring(GameContext* context) {
     SDL_Renderer* renderer = context->renderer;
     SDL_Color white = {255, 255, 255, 255};
     SDL_Color gray = {200, 200, 200, 255};
+    SDL_Color green = {50, 200, 50, 255}; // Cor para acerto
+    SDL_Color red = {200, 50, 50, 255};   // Cor para erro
 
+    // Mostra tela de "Carregando Pontuação..."
+    SDL_Texture* loadingTexture = NULL;
+    SDL_FRect loadingRect;
+    createTextTexture(context, 1, "IA está julgando suas respostas...", &loadingTexture, &loadingRect, 0, 300, white);
+    loadingRect.x = (SCREEN_WIDTH - loadingRect.w) / 2;
+    SDL_SetRenderDrawColor(renderer, 50, 50, 80, 255);
+    SDL_RenderClear(renderer);
+    SDL_RenderTexture(renderer, loadingTexture, NULL, &loadingRect);
+    SDL_RenderPresent(renderer);
+    SDL_DestroyTexture(loadingTexture);
+
+
+    // --- NOVO (Problema 3): Lógica de Pontuação Real (Batch) ---
     int scoreThisRound = 0;
+    int scores[NUM_THEMES] = {0}; // Guarda a pontuação de cada tema
+    
+    // 1. Monta um prompt "batch" gigante
+    char validation_prompt[2048];
+    char temp_prompt[512];
+    sprintf(validation_prompt, 
+        "Você é um juiz do jogo Adedonha (Stop!) para a letra '%c'. "
+        "Valide a seguinte lista de tema-resposta. "
+        "Para cada item, responda APENAS 'Sim' se a resposta for válida e começar com a letra '%c', ou 'Nao' caso contrário. "
+        "Responda apenas com 'Sim' ou 'Nao' para cada item, separados por vírgula. "
+        "Não adicione nenhuma outra palavra. "
+        "Exemplo de Resposta: Sim,Nao,Sim,Sim,Nao\n\n"
+        "A validar:\n", context->lastLetter, context->lastLetter);
+
     for (int i = 0; i < NUM_THEMES; i++) {
-        if (strlen(context->lastAnswers[i]) > 0) {
-            scoreThisRound += 5;
+        // Se a resposta estiver vazia, nem pergunta para a IA
+        if (strlen(context->lastAnswers[i]) == 0) {
+            sprintf(temp_prompt, "Tema: '%s', Resposta: ''\n", context->lastThemes[i]);
+        } else {
+            sprintf(temp_prompt, "Tema: '%s', Resposta: '%s'\n", context->lastThemes[i], context->lastAnswers[i]);
         }
+        strcat(validation_prompt, temp_prompt);
     }
+    
+    // 2. Chama a IA (apenas uma vez)
+    char* ai_response = call_gemini_api(validation_prompt);
+    
+    // 3. Processa a resposta da IA (ex: "Sim,Sim,Nao,Sim,Nao")
+    if (ai_response) {
+        char* token = strtok(ai_response, ",");
+        int i = 0;
+        while (token != NULL && i < NUM_THEMES) {
+            while (*token == ' ' || *token == '\n') token++; // Limpa espaços/quebra de linha
+            
+            // strncasecmp compara ignorando maiúsculas
+            if (strncasecmp(token, "Sim", 3) == 0) {
+                scores[i] = 10; // 10 pontos por acerto
+                scoreThisRound += 10;
+            } else {
+                scores[i] = 0; // 0 pontos por erro
+            }
+            
+            token = strtok(NULL, ",");
+            i++;
+        }
+        free(ai_response);
+    } else {
+        // Se a IA falhar, dá 0 pontos por segurança
+        scoreThisRound = 0;
+        for (int i = 0; i < NUM_THEMES; i++) scores[i] = 0;
+    }
+    
+    // Atualiza o placar
     updateScore(&(context->leaderboard), "Jogador", scoreThisRound);
 
-    // Prepara texturas
+    // --- Prepara texturas para esta tela ---
     SDL_Texture* titleTexture = NULL;
     SDL_FRect titleRect;
     char scoreText[100];
@@ -675,14 +729,21 @@ GameState runScoring(GameContext* context) {
     createTextTexture(context, 1, scoreText, &titleTexture, &titleRect, 0, 100, white);
     titleRect.x = (SCREEN_WIDTH - titleRect.w) / 2; // Centraliza
     
+    // Mostra as respostas com suas pontuações (Verde/Vermelho)
     SDL_Texture* answerTextures[NUM_THEMES];
     SDL_FRect answerRects[NUM_THEMES];
     for (int i = 0; i < NUM_THEMES; i++) {
         char answerLine[200];
-        sprintf(answerLine, "%s: %s", context->lastThemes[i], context->lastAnswers[i]);
+        // Mostra a pontuação individual
+        sprintf(answerLine, "%s: %s [%d pts]", context->lastThemes[i], 
+                (strlen(context->lastAnswers[i]) > 0) ? context->lastAnswers[i] : "-", 
+                scores[i]);
+                
         answerTextures[i] = NULL;
+        SDL_Color aColor = (scores[i] > 0) ? green : ((strlen(context->lastAnswers[i]) > 0) ? red : gray);
+        
         createTextTexture(context, 0, answerLine, 
-                          &answerTextures[i], &answerRects[i], 200, 200 + (i * 50), gray); // Posição Y e espaçamento maiores
+                          &answerTextures[i], &answerRects[i], 200, 200 + (i * 50), aColor);
     }
 
     SDL_Texture* subtitleTexture = NULL;
@@ -751,7 +812,7 @@ GameState runLeaderboard(GameContext* context) {
         SDL_RenderTexture(renderer, subtitleTexture, NULL, &subtitleRect);
 
         PlayerNode* current = context->leaderboard;
-        int yPos = 250; // Começa mais baixo
+        int yPos = 250;
         int rank = 1;
         while(current != NULL && rank <= 5) {
             char scoreEntry[100];
@@ -763,7 +824,7 @@ GameState runLeaderboard(GameContext* context) {
             SDL_RenderTexture(renderer, entryTexture, NULL, &entryRect);
             SDL_DestroyTexture(entryTexture);
             current = current->next;
-            yPos += 50; // Mais espaçamento
+            yPos += 50;
             rank++;
         }
         SDL_RenderPresent(renderer);
@@ -799,7 +860,7 @@ GameState runOptions(GameContext* context) {
     
     // Layout da Grade (6 colunas)
     const int numCols = 6;
-    const int spacingX = 150; // Mais espaço horizontal
+    const int spacingX = 150;
     const int spacingY = 80;
     const int startX = (SCREEN_WIDTH - (spacingX * (numCols - 1))) / 2;
     const int startY = 150;
@@ -808,7 +869,7 @@ GameState runOptions(GameContext* context) {
     SDL_Event event;
 
     while (running_options) {
-        // ... (Loop de Eventos é o MESMO de antes) ...
+        // Eventos
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT) {
                 return STATE_EXIT;
@@ -904,8 +965,8 @@ GameState runMenu(GameContext* context) {
     
     int selectedOption = 0;
     const int numOptions = 4;
-    const int buttonWidth = 400; // Botão mais largo
-    const int buttonHeight = 60; // Botão mais alto
+    const int buttonWidth = 400;
+    const int buttonHeight = 60;
     const int buttonYStart = 250;
     const int buttonPadding = 20;
 
@@ -1028,12 +1089,10 @@ int main(int argc, char* argv[]) {
     curl_global_init(CURL_GLOBAL_ALL);
 
     GameContext context;
-    // --- NOVO: Tela 1280x720 ---
-    context.window = SDL_CreateWindow("Adedonha (Stop!) - Projeto AED", 1280, 720, 0);
+    context.window = SDL_CreateWindow("Adedonha (Stop!) - Projeto AED", SCREEN_WIDTH, SCREEN_HEIGHT, 0);
     context.renderer = SDL_CreateRenderer(context.window, NULL);
     context.leaderboard = NULL; 
 
-    // --- NOVO: Fontes Maiores ---
     context.font_title = TTF_OpenFont("font.ttf", 48); // Fonte maior
     context.font_body = TTF_OpenFont("font.ttf", 30);  // Fonte de corpo maior
     
@@ -1042,17 +1101,16 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
-    // --- LÓGICA DE LETRAS CORRIGIDA: Começa com 26 ativadas ---
     for (int i = 0; i < 26; i++) {
-        context.isLetterEnabled[i] = 1; // 1 = Ativado
+        context.isLetterEnabled[i] = 1;
     }
 
     // Popula o placar
     updateScore(&(context.leaderboard), "CPU 1", 50);
-    updateScore(&(context.leaderboard), "Jogador", 20);
+    updateScore(&(context.leaderboard), "Jogador", 20); // Corrigido
     updateScore(&(context.leaderboard), "CPU 2", 80);
 
-    // list_available_models(); // Chama a função de diagnóstico
+    // list_available_models(); // Chamada de diagnóstico (comentada)
 
     // O Loop de Estado Principal
     GameState currentState = STATE_MENU;
@@ -1082,9 +1140,7 @@ int main(int argc, char* argv[]) {
 
     // Limpeza Global
     freeList(&(context.leaderboard));
-
     curl_global_cleanup();
-
     TTF_CloseFont(context.font_title);
     TTF_CloseFont(context.font_body);
     TTF_Quit();
