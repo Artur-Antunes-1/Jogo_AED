@@ -189,18 +189,15 @@ struct MemoryStruct {
 static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
     size_t realsize = size * nmemb;
     struct MemoryStruct *mem = (struct MemoryStruct *)userp;
-
     char *ptr = (char*)realloc(mem->memory, mem->size + realsize + 1);
     if(ptr == NULL) {
         printf("Erro: falha ao alocar memória (realloc)\n");
         return 0;
     }
-
     mem->memory = ptr;
     memcpy(&(mem->memory[mem->size]), contents, realsize);
     mem->size += realsize;
     mem->memory[mem->size] = 0;
-
     return realsize;
 }
 
@@ -211,7 +208,7 @@ char* call_gemini_api(const char* prompt) {
     struct MemoryStruct chunk;
     char* response_text = NULL;
 
-    chunk.memory = (char*)malloc(1); // Começa com 1 byte
+    chunk.memory = (char*)malloc(1);
     chunk.size = 0;
 
     curl = curl_easy_init();
@@ -236,7 +233,7 @@ char* call_gemini_api(const char* prompt) {
     cJSON_AddItemToArray(contents, part_obj);
     cJSON_AddItemToObject(json_payload, "contents", contents);
     
-    char *json_string = cJSON_Print(json_payload); // JSON como string
+    char *json_string = cJSON_Print(json_payload);
 
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Content-Type: application/json");
@@ -247,7 +244,7 @@ char* call_gemini_api(const char* prompt) {
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "libcurl-agent/1.0");
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L); // Mantém o bypass do SSL
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L); // Bypass do SSL
 
     res = curl_easy_perform(curl);
 
@@ -385,7 +382,7 @@ GameState runPlaying(GameContext* context) {
     // ----- NOVO: IA GERA TEMAS -----
     char prompt[512]; // Aumenta o tamanho do prompt
     
-    // --- CORREÇÃO (Problema 4): Prompt Melhorado ---
+    // --- CORREÇÃO (Problema 3): Prompt Melhorado ---
     sprintf(prompt, "Crie %d temas para um jogo de Adedonha (Stop!) com a letra %c. "
                     "IMPORTANTE: Para cada tema, garanta que exista pelo menos uma resposta óbvia e comum em português com a letra %c. "
                     "Não peça por temas impossíveis (como 'Oceano com K'). "
@@ -464,11 +461,8 @@ GameState runPlaying(GameContext* context) {
     float inputX = 400.0f;      // Caixas de input mais à direita
     float inputWidth = 800.0f;  // Caixas mais largas
     
-    // --- LINHA CORRIGIDA (Ambos os erros) ---
-    // 1. O nome da variável é 'textPaddingY' (com 't')
-    // 2. A função correta é 'TTF_GetFontHeight'
+    // --- CORREÇÃO (Erro de Compilação anterior) ---
     float textPaddingY = (inputHeight - TTF_GetFontHeight(context->font_body)) / 2.0f; // Centraliza texto verticalmente
-    // ------------------------------------
 
     for (int i = 0; i < NUM_THEMES; i++) {
         currentInput = (InputNode*)malloc(sizeof(InputNode));
@@ -1150,3 +1144,4 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
+
