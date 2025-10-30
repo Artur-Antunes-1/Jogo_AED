@@ -16,4 +16,4 @@ Thumbs.db
 desktop.ini
 
 # Arquivos de sistema do macOS
-.DS_Store
+.DS_Store local_include/
