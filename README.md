@@ -45,7 +45,7 @@ Para compilar e rodar este projeto, você precisará de:
 
 1.  Clone este repositório:
     ```bash
-    git clone [https://github.com/Artur-Antunes-1/Jogo_AED.git](https://github.com/Artur-Antunes-1/Jogo_AED.git)
+    git clone https://github.com/Artur-Antunes-1/Jogo_AED.git
     ```
 2.  Navegue até a pasta raiz do projeto.
 3.  Execute o seguinte comando no seu terminal para compilar:

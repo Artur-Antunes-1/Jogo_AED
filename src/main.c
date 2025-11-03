@@ -53,7 +53,21 @@ typedef struct PlayerNode {
     struct PlayerNode* prev;
 } PlayerNode;
 
-// --- Estrutura de "Contexto" ---
+// --- MELHORIA VISUAL: Paleta de Cores ---
+typedef struct {
+    SDL_Color bgColor;
+    SDL_Color bgGradientEnd; // Para o gradiente
+    SDL_Color textColor;
+    SDL_Color titleColor;
+    SDL_Color buttonColor;
+    SDL_Color highlightColor; // Botão selecionado
+    SDL_Color inputBgColor;
+    SDL_Color accentGreen;
+    SDL_Color accentRed;
+    SDL_Color accentGray;
+} AppColors;
+
+// --- Estrutura de "Contexto" (Atualizada) ---
 typedef struct {
     SDL_Window* window;
     SDL_Renderer* renderer;
@@ -64,6 +78,7 @@ typedef struct {
     char lastThemes[NUM_THEMES][100];
     char lastAnswers[NUM_THEMES][MAX_INPUT_LENGTH];
     int isLetterEnabled[26];
+    AppColors colors; // <<< NOVA ESTRUTURA DE CORES
 } GameContext;
 
 // --- Função Auxiliar de Texto (Atualizada) ---
@@ -80,6 +95,8 @@ void createTextTexture(GameContext* context, int isTitleFont, const char* text,
     }
     
     TTF_Font* fontToUse = (isTitleFont) ? context->font_title : context->font_body;
+    // --- CORREÇÃO: Usar TTF_RenderText_Blended_Wrapped para textos longos (embora aqui não precise tanto)
+    // Vamos manter Blended por enquanto, mas Blended_Wrapped com 'SCREEN_WIDTH - x' seria mais robusto.
     SDL_Surface* textSurface = TTF_RenderText_Blended(fontToUse, text, strlen(text), color);
     if (!textSurface) {
         SDL_Log("Erro ao criar superficie de texto: %s", SDL_GetError());
@@ -323,7 +340,21 @@ void list_available_models() {
     free(chunk.memory);
 }
 
-// --- LÓGICA DO ESTADO: JOGANDO (CORRIGIDO) ---
+// --- MELHORIA VISUAL: Função Auxiliar de Gradiente ---
+void drawGradientBackground(SDL_Renderer* renderer, SDL_Color c1, SDL_Color c2) {
+    for (int y = 0; y < SCREEN_HEIGHT; y++) {
+        // Interpolação linear simples
+        float ratio = (float)y / (float)SCREEN_HEIGHT;
+        Uint8 r = (Uint8)(c1.r * (1.0f - ratio) + c2.r * ratio);
+        Uint8 g = (Uint8)(c1.g * (1.0f - ratio) + c2.g * ratio);
+        Uint8 b = (Uint8)(c1.b * (1.0f - ratio) + c2.b * ratio);
+        SDL_SetRenderDrawColor(renderer, r, g, b, 255);
+        SDL_RenderLine(renderer, 0, y, SCREEN_WIDTH, y);
+    }
+}
+
+
+// --- LÓGICA DO ESTADO: JOGANDO (CORRIGIDO E MELHORADO) ---
 GameState runPlaying(GameContext* context) {
     SDL_Renderer* renderer = context->renderer;
 
@@ -336,11 +367,11 @@ GameState runPlaying(GameContext* context) {
     char timerText[20];
     int lastSecond = 61; // Força a atualização no primeiro frame
 
-    // --- Cores ---
-    SDL_Color white = {255, 255, 255, 255};
-    SDL_Color gray = {200, 200, 200, 255};
-    SDL_Color red = {255, 50, 50, 255};
-    SDL_Color inputBg = {50, 50, 50, 255};
+    // --- Cores (Usando a paleta do Contexto) ---
+    SDL_Color white = context->colors.textColor;
+    SDL_Color gray = context->colors.accentGray;
+    SDL_Color red = context->colors.accentRed;
+    SDL_Color inputBg = context->colors.inputBgColor;
 
     // ----- Sorteio de Letra -----
     srand((unsigned int)time(NULL));
@@ -367,7 +398,7 @@ GameState runPlaying(GameContext* context) {
         createTextTexture(context, 0, "Vá em 'Opções' para ativar.", &helpTexture, &helpRect, 0, 360, white);
         helpRect.x = (SCREEN_WIDTH - helpRect.w) / 2;
         
-        SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255);
+        SDL_SetRenderDrawColor(renderer, context->colors.bgColor.r, context->colors.bgColor.g, context->colors.bgColor.b, 255);
         SDL_RenderClear(renderer);
         SDL_RenderTexture(renderer, errTexture, NULL, &errRect);
         SDL_RenderTexture(renderer, helpTexture, NULL, &helpRect);
@@ -379,23 +410,28 @@ GameState runPlaying(GameContext* context) {
     }
     chosenLetter = letterPool[rand() % poolCount];
 
-    // ----- NOVO: IA GERA TEMAS -----
-    char prompt[512]; // Aumenta o tamanho do prompt
+    // ----- NOVO: IA GERA TEMAS (PROMPT MELHORADO) -----
+    char prompt[1024]; // Aumenta o tamanho do prompt
     
-    // --- CORREÇÃO (Problema 3): Prompt Melhorado ---
-    sprintf(prompt, "Crie %d temas para um jogo de Adedonha (Stop!) com a letra %c. "
-                    "IMPORTANTE: Para cada tema, garanta que exista pelo menos uma resposta óbvia e comum em português com a letra %c. "
-                    "Não peça por temas impossíveis (como 'Oceano com K'). "
-                    "Responda APENAS com os %d temas, separados por vírgula, sem quebra de linha, sem espaços extras. "
-                    "Exemplo: Algo salgado,Animal que voa,Filme de terror,Cor,Objeto", 
-                    NUM_THEMES, chosenLetter, chosenLetter, NUM_THEMES);
+    // --- MELHORIA IA: Prompt mais criativo e seguro ---
+    sprintf(prompt, 
+        "Você é um criador de jogos de 'Stop!' (Adedonha) criativo e desafiador. "
+        "Sua tarefa é gerar %d temas para a letra '%c'. "
+        "Os temas devem ser uma mistura de categorias comuns e algumas categorias mais incomuns ou específicas. "
+        "Evite temas EXTREMAMENTE genéricos como 'Cor' ou 'Fruta'. "
+        "Prefira temas como 'Personagem de ficção', 'País da Europa', 'Algo que se compra no supermercado', 'Marca de carro', 'Profissão'. "
+        "REGRA CRÍTICA: Para CADA tema, você DEVE garantir que exista pelo menos uma resposta razoavelmente comum em português que comece com a letra '%c'. "
+        "Não crie temas impossíveis (ex: 'Oceano' para a letra 'W'). "
+        "Responda APENAS com os %d temas, separados por vírgula, sem espaços extras após a vírgula e sem quebra de linha. "
+        "Exemplo de resposta: País,Marca de roupa,Profissão,Vilão de filme,Coisa que flutua",
+        NUM_THEMES, chosenLetter, chosenLetter, NUM_THEMES);
     
     // Mostra tela de "Carregando..."
     SDL_Texture* loadingTexture = NULL;
     SDL_FRect loadingRect;
     createTextTexture(context, 1, "Sorteando temas com a IA...", &loadingTexture, &loadingRect, 0, 300, white);
     loadingRect.x = (SCREEN_WIDTH - loadingRect.w) / 2;
-    SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255);
+    SDL_SetRenderDrawColor(renderer, context->colors.bgColor.r, context->colors.bgColor.g, context->colors.bgColor.b, 255);
     SDL_RenderClear(renderer);
     SDL_RenderTexture(renderer, loadingTexture, NULL, &loadingRect);
     SDL_RenderPresent(renderer);
@@ -416,7 +452,7 @@ GameState runPlaying(GameContext* context) {
         createTextTexture(context, 0, "Verifique sua API Key ou conexão.", &helpTexture, &helpRect, 0, 360, white);
         helpRect.x = (SCREEN_WIDTH - helpRect.w) / 2;
         
-        SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255);
+        SDL_SetRenderDrawColor(renderer, context->colors.bgColor.r, context->colors.bgColor.g, context->colors.bgColor.b, 255);
         SDL_RenderClear(renderer);
         SDL_RenderTexture(renderer, errTexture, NULL, &errRect);
         SDL_RenderTexture(renderer, helpTexture, NULL, &helpRect);
@@ -566,7 +602,7 @@ GameState runPlaying(GameContext* context) {
         }
 
         // 3. Renderização
-        SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255);
+        SDL_SetRenderDrawColor(renderer, context->colors.bgColor.r, context->colors.bgColor.g, context->colors.bgColor.b, 255);
         SDL_RenderClear(renderer);
 
         SDL_RenderTexture(renderer, letterTexture, NULL, &letterRect);
@@ -575,12 +611,16 @@ GameState runPlaying(GameContext* context) {
         InputNode* tempNode = headInput;
         do {
             InputField* field = &(tempNode->field);
+            // Desenha a caixa de input
             SDL_SetRenderDrawColor(renderer, inputBg.r, inputBg.g, inputBg.b, inputBg.a);
             SDL_RenderFillRect(renderer, &(field->inputBoxRect));
+            // Desenha o label (tema)
             SDL_RenderTexture(renderer, field->labelTexture, NULL, &(field->labelRect));
+            // Desenha o texto digitado
             SDL_RenderTexture(renderer, field->texture, NULL, &(field->rect));
 
             if (tempNode == activeNode) {
+                // Desenha o cursor
                 SDL_FRect cursorRect;
                 if (strlen(field->text) == 0) {
                     cursorRect.x = field->inputBoxRect.x + 10;
@@ -592,6 +632,10 @@ GameState runPlaying(GameContext* context) {
                 cursorRect.h = 30;
                 SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
                 SDL_RenderFillRect(renderer, &cursorRect);
+                
+                // --- MELHORIA VISUAL: Destaque Amarelo no Input Ativo ---
+                SDL_SetRenderDrawColor(renderer, context->colors.titleColor.r, context->colors.titleColor.g, context->colors.titleColor.b, 255);
+                SDL_RenderRect(renderer, &(field->inputBoxRect));
             }
             tempNode = tempNode->next;
         } while (tempNode != headInput);
@@ -641,17 +685,19 @@ GameState runPlaying(GameContext* context) {
 // --- LÓGICA DO ESTADO: PONTUAÇÃO (COM IA JUIZ) ---
 GameState runScoring(GameContext* context) {
     SDL_Renderer* renderer = context->renderer;
-    SDL_Color white = {255, 255, 255, 255};
-    SDL_Color gray = {200, 200, 200, 255};
-    SDL_Color green = {50, 200, 50, 255}; // Cor para acerto
-    SDL_Color red = {200, 50, 50, 255};   // Cor para erro
+    // --- USA A PALETA DE CORES ---
+    SDL_Color white = context->colors.textColor;
+    SDL_Color gray = context->colors.accentGray;
+    SDL_Color green = context->colors.accentGreen;
+    SDL_Color red = context->colors.accentRed;
 
     // Mostra tela de "Carregando Pontuação..."
     SDL_Texture* loadingTexture = NULL;
     SDL_FRect loadingRect;
     createTextTexture(context, 1, "IA está julgando suas respostas...", &loadingTexture, &loadingRect, 0, 300, white);
     loadingRect.x = (SCREEN_WIDTH - loadingRect.w) / 2;
-    SDL_SetRenderDrawColor(renderer, 50, 50, 80, 255);
+    // Fundo sólido (sem gradiente aqui, para foco)
+    SDL_SetRenderDrawColor(renderer, context->colors.bgColor.r, context->colors.bgColor.g, context->colors.bgColor.b, 255);
     SDL_RenderClear(renderer);
     SDL_RenderTexture(renderer, loadingTexture, NULL, &loadingRect);
     SDL_RenderPresent(renderer);
@@ -756,7 +802,7 @@ GameState runScoring(GameContext* context) {
             }
         }
         // Renderização
-        SDL_SetRenderDrawColor(renderer, 50, 50, 80, 255);
+        SDL_SetRenderDrawColor(renderer, context->colors.bgColor.r, context->colors.bgColor.g, context->colors.bgColor.b, 255);
         SDL_RenderClear(renderer);
         SDL_RenderTexture(renderer, titleTexture, NULL, &titleRect);
         SDL_RenderTexture(renderer, subtitleTexture, NULL, &subtitleRect);
@@ -778,8 +824,9 @@ GameState runScoring(GameContext* context) {
 // --- LÓGICA DO ESTADO: PLACAR (LAYOUT 1280x720) ---
 GameState runLeaderboard(GameContext* context) {
     SDL_Renderer* renderer = context->renderer;
-    SDL_Color white = {255, 255, 255, 255};
-    SDL_Color yellow = {255, 255, 0, 255};
+    // --- USA A PALETA DE CORES ---
+    SDL_Color white = context->colors.textColor;
+    SDL_Color yellow = context->colors.titleColor;
 
     SDL_Texture* titleTexture = NULL;
     SDL_FRect titleRect;
@@ -800,8 +847,9 @@ GameState runLeaderboard(GameContext* context) {
                 if (event.key.key == SDLK_ESCAPE) { running_leaderboard = 0; }
             }
         }
-        SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
-        SDL_RenderClear(renderer);
+        // --- USA O GRADIENTE ---
+        drawGradientBackground(renderer, context->colors.bgColor, context->colors.bgGradientEnd);
+        
         SDL_RenderTexture(renderer, titleTexture, NULL, &titleRect);
         SDL_RenderTexture(renderer, subtitleTexture, NULL, &subtitleRect);
 
@@ -833,12 +881,12 @@ GameState runLeaderboard(GameContext* context) {
 GameState runOptions(GameContext* context) {
     SDL_Renderer* renderer = context->renderer;
 
-    SDL_Color bgColor = {30, 30, 30, 255};
-    SDL_Color titleColor = {255, 255, 0, 255};
-    SDL_Color enabledColor = {50, 200, 50, 255};
-    SDL_Color disabledColor = {200, 50, 50, 255};
-    SDL_Color selectedColor = {255, 255, 255, 255};
-    SDL_Color textColor = {200, 200, 200, 255};
+    // --- USA A PALETA DE CORES ---
+    SDL_Color titleColor = context->colors.titleColor;
+    SDL_Color enabledColor = context->colors.accentGreen;
+    SDL_Color disabledColor = context->colors.accentRed;
+    SDL_Color selectedColor = context->colors.textColor; // Branco para o cursor
+    SDL_Color textColor = context->colors.accentGray;
 
     SDL_Texture* titleTexture = NULL;
     SDL_FRect titleRect;
@@ -904,8 +952,8 @@ GameState runOptions(GameContext* context) {
         }
 
         // Renderização
-        SDL_SetRenderDrawColor(renderer, bgColor.r, bgColor.g, bgColor.b, bgColor.a);
-        SDL_RenderClear(renderer);
+        // --- USA O GRADIENTE ---
+        drawGradientBackground(renderer, context->colors.bgColor, context->colors.bgGradientEnd);
 
         SDL_RenderTexture(renderer, titleTexture, NULL, &titleRect);
         SDL_RenderTexture(renderer, helpTexture, NULL, &helpRect);
@@ -964,11 +1012,11 @@ GameState runMenu(GameContext* context) {
     const int buttonYStart = 250;
     const int buttonPadding = 20;
 
-    SDL_Color bgColor = {30, 30, 30, 255};
-    SDL_Color buttonColor = {70, 70, 70, 255};
-    SDL_Color selectedColor = {100, 100, 20, 255};
-    SDL_Color textColor = {255, 255, 255, 255};
-    SDL_Color titleColor = {255, 255, 0, 255};
+    // --- USA A PALETA DE CORES ---
+    SDL_Color buttonColor = context->colors.buttonColor;
+    SDL_Color selectedColor = context->colors.highlightColor;
+    SDL_Color textColor = context->colors.textColor;
+    SDL_Color titleColor = context->colors.titleColor;
 
     // --- Prepara as Texturas de Texto ---
     SDL_Texture* titleTexture = NULL;
@@ -1034,8 +1082,9 @@ GameState runMenu(GameContext* context) {
         }
 
         // Renderização
-        SDL_SetRenderDrawColor(renderer, bgColor.r, bgColor.g, bgColor.b, bgColor.a);
-        SDL_RenderClear(renderer);
+        // --- USA O GRADIENTE ---
+        drawGradientBackground(renderer, context->colors.bgColor, context->colors.bgGradientEnd);
+        
         SDL_RenderTexture(renderer, titleTexture, NULL, &titleRect);
 
         SDL_Color playColor = (selectedOption == 0) ? selectedColor : buttonColor;
@@ -1086,6 +1135,18 @@ int main(int argc, char* argv[]) {
     context.window = SDL_CreateWindow("Adedonha (Stop!) - Projeto AED", SCREEN_WIDTH, SCREEN_HEIGHT, 0);
     context.renderer = SDL_CreateRenderer(context.window, NULL);
     context.leaderboard = NULL; 
+
+    // --- INICIALIZA A PALETA DE CORES ---
+    context.colors.bgColor = (SDL_Color){30, 30, 40, 255};      // Fundo escuro (azul/roxo)
+    context.colors.bgGradientEnd = (SDL_Color){15, 15, 20, 255}; // Gradiente para mais escuro
+    context.colors.textColor = (SDL_Color){230, 230, 230, 255}; // Branco suave
+    context.colors.titleColor = (SDL_Color){255, 200, 0, 255};   // Amarelo/Ouro
+    context.colors.buttonColor = (SDL_Color){70, 70, 90, 255};   // Botão (roxo/azul)
+    context.colors.highlightColor = (SDL_Color){100, 100, 130, 255}; // Botão selecionado
+    context.colors.inputBgColor = (SDL_Color){50, 50, 60, 255};
+    context.colors.accentGreen = (SDL_Color){50, 200, 50, 255};
+    context.colors.accentRed = (SDL_Color){200, 50, 50, 255};
+    context.colors.accentGray = (SDL_Color){150, 150, 150, 255};
 
     context.font_title = TTF_OpenFont("font.ttf", 48); // Fonte maior
     context.font_body = TTF_OpenFont("font.ttf", 30);  // Fonte de corpo maior
@@ -1144,4 +1205,3 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
-
