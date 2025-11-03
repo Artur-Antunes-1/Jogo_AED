@@ -9,6 +9,13 @@ Este é um projeto desenvolvido para a disciplina **Algoritmos e Estruturas de D
 Atualmente, o projeto implementa as seguintes funcionalidades:
 
 * **Menu Principal:** Navegável com setas e Enter, com opções para "Iniciar Jogo", "Ver Placar", "Opções de Letras" e "Sair".
+
+-   **Integração com IA (Google Gemini):**
+
+    -   **Temas Dinâmicos:** A IA gera 5 temas criativos e adequados para a letra sorteada no início de cada rodada.
+
+    -   **Juiz de IA:** A IA valida as respostas do jogador na tela de pontuação, atribuindo pontuação real (10 para acertos, 0 para erros).
+    
 * **Tela de Jogo:**
     * Sorteia uma letra aleatória (considerando as letras ativadas nas opções) e 5 temas (ordenados alfabeticamente com Quicksort).
     * Exibe um timer de 60 segundos.
@@ -56,11 +63,28 @@ Após a compilação, o `meujogo.exe` estará na pasta `/build`. O jogo precisa 
 1.  **Copie os arquivos `SDL3.dll`, `SDL3_ttf.dll` e `libcurl-x64.dll`** da pasta `/lib/bin/`.
 2.  **Cole-os** na sua pasta `/build/` (ao lado do `meujogo.exe` que você acabou de compilar).
 3.  Certifique-se de que o arquivo `font.ttf` está na pasta raiz (`JogoC&SDL/`).
-4.  Execute o jogo (pelo terminal ou dando dois cliques):
 
     ```bash
     ./build/meujogo.exe
     ```
+
+4.  Execute o jogo (pelo terminal ou dando dois cliques):
+Após a compilação, a pasta `/build` **não** funcionará por si só. Para criar uma pasta de jogo "publicável" (que funcione com clique duplo), você precisa copiar todos os recursos necessários para dentro dela.
+
+  **Copie o Asset (A Fonte):**
+    -   **Copie o arquivo `font.ttf`** da pasta raiz do projeto (`JogoC&SDL/`) para a sua pasta `/build/`.
+
+Sua pasta `build/` agora está autossuficiente e deve se parecer com isto:
+
+```
+build/
+├── meujogo.exe
+├── SDL3.dll
+├── SDL3_ttf.dll
+├── libcurl.dll
+└── font.ttf
+
+```
 
 ---
 
@@ -86,22 +110,30 @@ Após a compilação, o `meujogo.exe` estará na pasta `/build`. O jogo precisa 
 ## 📁 Estrutura do Projeto
 
 ```plaintext
+
 JogoC&SDL/
-├── .gitignore       # Arquivos a serem ignorados pelo Git
-├── README.md        # Este arquivo
-├── font.ttf         # Arquivo de fonte necessário
+├── .gitignore
+├── README.md
+├── font.ttf         # Arquivo de fonte (deve ser copiado para /build)
 ├── src/
-│   └── main.c       # Código-fonte principal do jogo
+│   ├── main.c       # Código-fonte principal
+│   ├── cJSON.c      # Código da biblioteca JSON
+│   ├── cJSON.h      # Header da biblioteca JSON
+│   └── config.h     # (Ignorado) Contém a API_KEY
 ├── lib/
 │   ├── bin/
 │   │   ├── SDL3.dll       # DLL principal do SDL
-│   │   └── SDL3_ttf.dll   # DLL da biblioteca de fontes
-│   │   └── libcurl-x64.dll
+│   │   ├── SDL3_ttf.dll   # DLL da biblioteca de fontes
+│   │   └── libcurl-x64.dll # (ou libcurl-x64.dll)          
 │   ├── include/
-│   │   └── SDL3/          # Arquivos de cabeçalho (.h) do SDL e SDL_ttf
+│   │   ├── SDL3/      # Headers do SDL
+│   │   └── curl/      # Headers da libcurl
 │   └── lib/
-│       └── ...            # Arquivos de link (.a) do SDL e SDL_ttf
-└── build/               # (Ignorada) Onde os executáveis são compilados
+│       ├── libSDL3.dll.a
+│       ├── libSDL3_ttf.dll.a
+│       └── libcurl.a
+└── build/               # (Ignorada) Onde o jogo compilado é executado
+
 ```
 
 ---
