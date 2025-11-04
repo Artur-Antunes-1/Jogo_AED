@@ -12,12 +12,13 @@
 #include "config.h"     // Para a API_KEY (src/config.h)
 #include <curl/curl.h>  // Para libcurl (rede)
 #include "cJSON.h"      // Para cJSON (ler a resposta)
+#include <math.h>       // Para a função sinf() da animação
 
 // --- Constantes de Tela ---
 #define MAX_INPUT_LENGTH 50
 #define NUM_THEMES 5
-#define SCREEN_WIDTH 1280
-#define SCREEN_HEIGHT 720
+#define SCREEN_WIDTH 1600
+#define SCREEN_HEIGHT 900
 
 // --- REQ. 2: Estados do Jogo ---
 typedef enum {
@@ -491,11 +492,11 @@ GameState runPlaying(GameContext* context) {
     InputNode* prevInput = NULL;
 
     float inputYStart = 150.0f;
-    float inputHeight = 50.0f;
+    float inputHeight = 60.0f; // Caixas um pouco mais altas
     float inputSpacing = 80.0f; // Mais espaço vertical
-    float labelX = 50.0f;       // Labels mais à esquerda
-    float inputX = 400.0f;      // Caixas de input mais à direita
-    float inputWidth = 800.0f;  // Caixas mais largas
+    float labelX = 100.0f;      // Labels mais à esquerda
+    float inputX = 600.0f;      // Caixas de input mais à direita para dar espaço
+    float inputWidth = 850.0f;  // Caixas um pouco mais estreitas para caber
     
     // --- CORREÇÃO (Erro de Compilação anterior) ---
     float textPaddingY = (inputHeight - TTF_GetFontHeight(context->font_body)) / 2.0f; // Centraliza texto verticalmente
@@ -623,6 +624,29 @@ GameState runPlaying(GameContext* context) {
                 // Desenha o cursor
                 SDL_FRect cursorRect;
                 if (strlen(field->text) == 0) {
+                    // --- MELHORIA UX: Cursor piscando ---
+                    // O cursor só aparece em intervalos de 500ms
+                    if ((SDL_GetTicks() / 500) % 2 == 0) {
+                        cursorRect.x = field->inputBoxRect.x + 10;
+                        cursorRect.y = field->inputBoxRect.y + (field->inputBoxRect.h - 30) / 2;
+                        cursorRect.w = 10;
+                        cursorRect.h = 30;
+                        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+                        SDL_RenderFillRect(renderer, &cursorRect);
+                    }
+                } else {
+                    // --- MELHORIA UX: Cursor piscando ---
+                    if ((SDL_GetTicks() / 500) % 2 == 0) {
+                        cursorRect.x = field->rect.x + field->rect.w + 5;
+                        cursorRect.y = field->inputBoxRect.y + (field->inputBoxRect.h - 30) / 2;
+                        cursorRect.w = 10;
+                        cursorRect.h = 30;
+                        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+                        SDL_RenderFillRect(renderer, &cursorRect);
+                    }
+                }
+                /* // CÓDIGO ANTIGO DO CURSOR ESTÁTICO
+                if (strlen(field->text) == 0) {
                     cursorRect.x = field->inputBoxRect.x + 10;
                 } else {
                     cursorRect.x = field->rect.x + field->rect.w + 5;
@@ -632,7 +656,7 @@ GameState runPlaying(GameContext* context) {
                 cursorRect.h = 30;
                 SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
                 SDL_RenderFillRect(renderer, &cursorRect);
-                
+                */
                 // --- MELHORIA VISUAL: Destaque Amarelo no Input Ativo ---
                 SDL_SetRenderDrawColor(renderer, context->colors.titleColor.r, context->colors.titleColor.g, context->colors.titleColor.b, 255);
                 SDL_RenderRect(renderer, &(field->inputBoxRect));
@@ -973,20 +997,26 @@ GameState runOptions(GameContext* context) {
             char entryText[20];
             sprintf(entryText, "%c: %s", letterChar, status);
 
+            // --- CORREÇÃO DO BUG DE RENDERIZAÇÃO E ERRO DE COMPILAÇÃO ---
+            // 1. Cria a textura do texto para obter suas dimensões
             SDL_Texture* entryTexture = NULL;
             SDL_FRect entryRect;
             createTextTexture(context, 0, entryText, &entryTexture, &entryRect, xPos, yPos, statusColor);
-            
-            SDL_RenderTexture(renderer, entryTexture, NULL, &entryRect);
 
-            // Desenha o cursor
+            // 2. Desenha o destaque PRIMEIRO (se selecionado)
             if (i == selectedLetter) {
                 SDL_FRect cursorRect = {entryRect.x - 10, entryRect.y - 5, 
                                         entryRect.w + 20, entryRect.h + 10};
-                SDL_SetRenderDrawColor(renderer, selectedColor.r, selectedColor.g, selectedColor.b, selectedColor.a);
+                
+                // Habilita o blending para a transparência funcionar
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(renderer, selectedColor.r, selectedColor.g, selectedColor.b, 100);
+                SDL_RenderFillRect(renderer, &cursorRect);
                 SDL_RenderRect(renderer, &cursorRect);
             }
             
+            // 3. AGORA desenha o texto por cima de tudo (usando a textura já criada)
+            SDL_RenderTexture(renderer, entryTexture, NULL, &entryRect);
             SDL_DestroyTexture(entryTexture);
         }
         
@@ -1015,26 +1045,32 @@ GameState runMenu(GameContext* context) {
     // --- USA A PALETA DE CORES ---
     SDL_Color buttonColor = context->colors.buttonColor;
     SDL_Color selectedColor = context->colors.highlightColor;
-    SDL_Color textColor = context->colors.textColor;
+    SDL_Color textColor = context->colors.textColor; // Cor padrão do texto
+    SDL_Color textSelectedColor = context->colors.titleColor; // Cor do texto quando selecionado
     SDL_Color titleColor = context->colors.titleColor;
 
     // --- Prepara as Texturas de Texto ---
     SDL_Texture* titleTexture = NULL;
     SDL_FRect titleRect;
     createTextTexture(context, 1, "Jogo de Adedonha (STOP!)", &titleTexture, &titleRect, 0, 100, titleColor);
-    titleRect.x = (SCREEN_WIDTH - titleRect.w) / 2;
-
-    SDL_Texture* playTexture = NULL; SDL_FRect playRect;
-    createTextTexture(context, 0, "Iniciar Jogo", &playTexture, &playRect, 0, 0, textColor);
     
-    SDL_Texture* boardTexture = NULL; SDL_FRect boardRect;
-    createTextTexture(context, 0, "Ver Placar", &boardTexture, &boardRect, 0, 0, textColor);
+    // Texturas para cada estado do botão (normal e selecionado)
+    SDL_Texture* playTextures[2]; SDL_FRect playRects[2];
+    SDL_Texture* boardTextures[2]; SDL_FRect boardRects[2];
+    SDL_Texture* optionsTextures[2]; SDL_FRect optionsRects[2];
+    SDL_Texture* exitTextures[2]; SDL_FRect exitRects[2];
 
-    SDL_Texture* optionsTexture = NULL; SDL_FRect optionsRect;
-    createTextTexture(context, 0, "Opções de Letras", &optionsTexture, &optionsRect, 0, 0, textColor);
+    createTextTexture(context, 0, "Iniciar Jogo", &playTextures[0], &playRects[0], 0, 0, textColor);
+    createTextTexture(context, 0, "Iniciar Jogo", &playTextures[1], &playRects[1], 0, 0, textSelectedColor);
 
-    SDL_Texture* exitTexture = NULL; SDL_FRect exitRect;
-    createTextTexture(context, 0, "Sair", &exitTexture, &exitRect, 0, 0, textColor);
+    createTextTexture(context, 0, "Ver Placar", &boardTextures[0], &boardRects[0], 0, 0, textColor);
+    createTextTexture(context, 0, "Ver Placar", &boardTextures[1], &boardRects[1], 0, 0, textSelectedColor);
+
+    createTextTexture(context, 0, "Opções de Letras", &optionsTextures[0], &optionsRects[0], 0, 0, textColor);
+    createTextTexture(context, 0, "Opções de Letras", &optionsTextures[1], &optionsRects[1], 0, 0, textSelectedColor);
+
+    createTextTexture(context, 0, "Sair", &exitTextures[0], &exitRects[0], 0, 0, textColor);
+    createTextTexture(context, 0, "Sair", &exitTextures[1], &exitRects[1], 0, 0, textSelectedColor);
 
     // Retângulos dos Botões
     SDL_FRect playButtonRect = { (SCREEN_WIDTH - buttonWidth) / 2, buttonYStart, buttonWidth, buttonHeight };
@@ -1043,14 +1079,15 @@ GameState runMenu(GameContext* context) {
     SDL_FRect exitButtonRect = { (SCREEN_WIDTH - buttonWidth) / 2, buttonYStart + (buttonHeight + buttonPadding) * 3, buttonWidth, buttonHeight };
 
     // Centraliza os textos dentro dos seus botões
-    playRect.x = (SCREEN_WIDTH - playRect.w) / 2;
-    playRect.y = playButtonRect.y + (buttonHeight - playRect.h) / 2;
-    boardRect.x = (SCREEN_WIDTH - boardRect.w) / 2;
-    boardRect.y = boardButtonRect.y + (buttonHeight - boardRect.h) / 2;
-    optionsRect.x = (SCREEN_WIDTH - optionsRect.w) / 2;
-    optionsRect.y = optionsButtonRect.y + (buttonHeight - optionsRect.h) / 2;
-    exitRect.x = (SCREEN_WIDTH - exitRect.w) / 2;
-    exitRect.y = exitButtonRect.y + (buttonHeight - exitRect.h) / 2;
+    titleRect.x = (SCREEN_WIDTH - titleRect.w) / 2.0f;
+    playRects[0].x = playRects[1].x = (SCREEN_WIDTH - playRects[0].w) / 2.0f;
+    playRects[0].y = playRects[1].y = playButtonRect.y + (buttonHeight - playRects[0].h) / 2.0f;
+    boardRects[0].x = boardRects[1].x = (SCREEN_WIDTH - boardRects[0].w) / 2.0f;
+    boardRects[0].y = boardRects[1].y = boardButtonRect.y + (buttonHeight - boardRects[0].h) / 2.0f;
+    optionsRects[0].x = optionsRects[1].x = (SCREEN_WIDTH - optionsRects[0].w) / 2.0f;
+    optionsRects[0].y = optionsRects[1].y = optionsButtonRect.y + (buttonHeight - optionsRects[0].h) / 2.0f;
+    exitRects[0].x = exitRects[1].x = (SCREEN_WIDTH - exitRects[0].w) / 2.0f;
+    exitRects[0].y = exitRects[1].y = exitButtonRect.y + (buttonHeight - exitRects[0].h) / 2.0f;
 
     // --- Loop do Menu ---
     int running_menu = 1;
@@ -1085,37 +1122,58 @@ GameState runMenu(GameContext* context) {
         // --- USA O GRADIENTE ---
         drawGradientBackground(renderer, context->colors.bgColor, context->colors.bgGradientEnd);
         
+        // --- CORREÇÃO: Renderiza o título estaticamente, sem animação ---
         SDL_RenderTexture(renderer, titleTexture, NULL, &titleRect);
 
+        // --- MELHORIA UI: Lógica de renderização de botões aprimorada ---
         SDL_Color playColor = (selectedOption == 0) ? selectedColor : buttonColor;
         SDL_SetRenderDrawColor(renderer, playColor.r, playColor.g, playColor.b, playColor.a);
         SDL_RenderFillRect(renderer, &playButtonRect);
-        SDL_RenderTexture(renderer, playTexture, NULL, &playRect);
+        // --- CORREÇÃO: Usa o retângulo correto para cada estado ---
+        SDL_RenderTexture(renderer, playTextures[selectedOption == 0], NULL, &playRects[selectedOption == 0]);
+        if (selectedOption == 0) { // Adiciona contorno
+            SDL_SetRenderDrawColor(renderer, textSelectedColor.r, textSelectedColor.g, textSelectedColor.b, 255);
+            SDL_RenderRect(renderer, &playButtonRect);
+        }
 
         SDL_Color boardColor = (selectedOption == 1) ? selectedColor : buttonColor;
         SDL_SetRenderDrawColor(renderer, boardColor.r, boardColor.g, boardColor.b, boardColor.a);
         SDL_RenderFillRect(renderer, &boardButtonRect);
-        SDL_RenderTexture(renderer, boardTexture, NULL, &boardRect);
+        SDL_RenderTexture(renderer, boardTextures[selectedOption == 1], NULL, &boardRects[selectedOption == 1]);
+        if (selectedOption == 1) {
+            SDL_SetRenderDrawColor(renderer, textSelectedColor.r, textSelectedColor.g, textSelectedColor.b, 255);
+            SDL_RenderRect(renderer, &boardButtonRect);
+        }
 
         SDL_Color optionsColor = (selectedOption == 2) ? selectedColor : buttonColor;
         SDL_SetRenderDrawColor(renderer, optionsColor.r, optionsColor.g, optionsColor.b, optionsColor.a);
         SDL_RenderFillRect(renderer, &optionsButtonRect);
-        SDL_RenderTexture(renderer, optionsTexture, NULL, &optionsRect);
+        SDL_RenderTexture(renderer, optionsTextures[selectedOption == 2], NULL, &optionsRects[selectedOption == 2]);
+        if (selectedOption == 2) {
+            SDL_SetRenderDrawColor(renderer, textSelectedColor.r, textSelectedColor.g, textSelectedColor.b, 255);
+            SDL_RenderRect(renderer, &optionsButtonRect);
+        }
 
         SDL_Color exitColor = (selectedOption == 3) ? selectedColor : buttonColor;
         SDL_SetRenderDrawColor(renderer, exitColor.r, exitColor.g, exitColor.b, exitColor.a);
         SDL_RenderFillRect(renderer, &exitButtonRect);
-        SDL_RenderTexture(renderer, exitTexture, NULL, &exitRect);
+        SDL_RenderTexture(renderer, exitTextures[selectedOption == 3], NULL, &exitRects[selectedOption == 3]);
+        if (selectedOption == 3) {
+            SDL_SetRenderDrawColor(renderer, textSelectedColor.r, textSelectedColor.g, textSelectedColor.b, 255);
+            SDL_RenderRect(renderer, &exitButtonRect);
+        }
 
         SDL_RenderPresent(renderer);
     }
 
     // Limpeza
     SDL_DestroyTexture(titleTexture);
-    SDL_DestroyTexture(playTexture);
-    SDL_DestroyTexture(boardTexture);
-    SDL_DestroyTexture(optionsTexture);
-    SDL_DestroyTexture(exitTexture);
+    for(int i=0; i<2; i++) {
+        SDL_DestroyTexture(playTextures[i]);
+        SDL_DestroyTexture(boardTextures[i]);
+        SDL_DestroyTexture(optionsTextures[i]);
+        SDL_DestroyTexture(exitTextures[i]);
+    }
     
     return STATE_EXIT;
 }
