@@ -4,11 +4,8 @@
 #include <time.h>
 #include <stdio.h>
 #include <string.h>
-
-// --- NOVO INCLUDE: Para 'strncasecmp' (ignorar maiúsculas/minúsculas) ---
 #include <strings.h> 
 
-// --- NOVOS INCLUDES PARA IA ---
 #include "config.h"     // Para a API_KEY (src/config.h)
 #include <curl/curl.h>  // Para libcurl (rede)
 #include "cJSON.h"      // Para cJSON (ler a resposta)
@@ -20,7 +17,7 @@
 #define SCREEN_WIDTH 1600
 #define SCREEN_HEIGHT 900
 
-// --- REQ. 2: Estados do Jogo ---
+// --- Estados do Jogo ---
 typedef enum {
     STATE_MENU,
     STATE_PLAYING,
@@ -40,13 +37,13 @@ typedef struct {
     SDL_FRect inputBoxRect; // Guarda o retângulo da caixa cinza
 } InputField;
 
-// --- NOVO: REQ. 3 (Adicional): Lista Circular para Inputs ---
+// --- Lista Circular para Inputs ---
 typedef struct InputNode {
     InputField field;         // Contém os dados do campo (texto, texturas, etc.)
     struct InputNode* next; // Ponteiro para o próximo nó na lista circular
 } InputNode;
 
-// --- REQ. 3: Estrutura da Lista Dupla ---
+// --- Estrutura da Lista Dupla ---
 typedef struct PlayerNode {
     char name[50];
     int totalScore;
@@ -68,7 +65,7 @@ typedef struct {
     SDL_Color accentGray;
 } AppColors;
 
-// --- Estrutura de "Contexto" (Atualizada) ---
+// --- Estrutura de "Contexto" ---
 typedef struct {
     SDL_Window* window;
     SDL_Renderer* renderer;
@@ -82,7 +79,7 @@ typedef struct {
     AppColors colors; // <<< NOVA ESTRUTURA DE CORES
 } GameContext;
 
-// --- Função Auxiliar de Texto (Atualizada) ---
+// --- Função Auxiliar de Texto  ---
 void createTextTexture(GameContext* context, int isTitleFont, const char* text, 
                        SDL_Texture** texture, SDL_FRect* rect, int x, int y, SDL_Color color) {
     
@@ -96,7 +93,7 @@ void createTextTexture(GameContext* context, int isTitleFont, const char* text,
     }
     
     TTF_Font* fontToUse = (isTitleFont) ? context->font_title : context->font_body;
-    // --- CORREÇÃO: Usar TTF_RenderText_Blended_Wrapped para textos longos (embora aqui não precise tanto)
+    // --- CORREÇÃO: Usar TTF_RenderText_Blended_Wrapped para textos longos
     // Vamos manter Blended por enquanto, mas Blended_Wrapped com 'SCREEN_WIDTH - x' seria mais robusto.
     SDL_Surface* textSurface = TTF_RenderText_Blended(fontToUse, text, strlen(text), color);
     if (!textSurface) {
@@ -112,7 +109,7 @@ void createTextTexture(GameContext* context, int isTitleFont, const char* text,
     SDL_DestroySurface(textSurface);
 }
 
-// --- Funções da Estrutura de Dados (REQ. 5) ---
+// --- Funções da Estrutura de Dados ---
 PlayerNode* createPlayer(const char* name) {
     PlayerNode* newNode = (PlayerNode*)malloc(sizeof(PlayerNode));
     if (newNode) {
@@ -173,7 +170,7 @@ void updateScore(PlayerNode** head, const char* name, int pointsToAdd) {
     insertSorted(head, player);
 }
 
-// --- Algoritmo de Ordenação (REQ. 4) ---
+// --- Algoritmo de Ordenação  ---
 void swapStrings(const char** a, const char** b) { const char* t = *a; *a = *b; *b = t; }
 int partition(const char* arr[], int low, int high) {
     const char* pivot = arr[high]; int i = (low - 1);
@@ -219,7 +216,7 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, voi
     return realsize;
 }
 
-// A função principal da IA!
+// A função principal da IA
 char* call_gemini_api(const char* prompt) {
     CURL *curl;
     CURLcode res;
@@ -355,7 +352,7 @@ void drawGradientBackground(SDL_Renderer* renderer, SDL_Color c1, SDL_Color c2) 
 }
 
 
-// --- LÓGICA DO ESTADO: JOGANDO (CORRIGIDO E MELHORADO) ---
+// --- LÓGICA DO ESTADO: JOGANDO ---
 GameState runPlaying(GameContext* context) {
     SDL_Renderer* renderer = context->renderer;
 
@@ -388,7 +385,7 @@ GameState runPlaying(GameContext* context) {
 
     char chosenLetter;
     if (poolCount == 0) { 
-        // Mostra erro (agora centralizado)
+        // Mostra erro 
         SDL_Texture* errTexture = NULL;
         SDL_FRect errRect;
         createTextTexture(context, 1, "Erro: Nenhuma letra ativada!", &errTexture, &errRect, 0, 300, red);
@@ -411,10 +408,10 @@ GameState runPlaying(GameContext* context) {
     }
     chosenLetter = letterPool[rand() % poolCount];
 
-    // ----- NOVO: IA GERA TEMAS (PROMPT MELHORADO) -----
+    // ----- IA GERA TEMAS (PROMPT MELHORADO) -----
     char prompt[1024]; // Aumenta o tamanho do prompt
     
-    // --- MELHORIA IA: Prompt mais criativo e seguro ---
+    // --- MELHORIA: Prompt mais criativo e seguro ---
     sprintf(prompt, 
         "Você é um criador de jogos de 'Stop!' (Adedonha) criativo e desafiador. "
         "Sua tarefa é gerar %d temas para a letra '%c'. "
@@ -486,7 +483,7 @@ GameState runPlaying(GameContext* context) {
     int topRowY = 50; // Y da linha superior
     createTextTexture(context, 1, letterText, &letterTexture, &letterRect, 50, topRowY, white);
 
-    // --- CORREÇÃO (Problema 1): Layout Melhorado ---
+    // --- Layout Melhorado ---
     InputNode* headInput = NULL;
     InputNode* currentInput = NULL;
     InputNode* prevInput = NULL;
