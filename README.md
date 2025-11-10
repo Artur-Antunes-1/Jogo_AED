@@ -90,7 +90,7 @@ As bibliotecas (SDL3, SDL3_ttf, libcurl) já estão incluídas na pasta `lib/` p
 ### 2\.  Clone este repositório:
     
     ```
-    git clone https://github.com/Artur-Antunes-1/Jogo_AED.git
+git clone https://github.com/Artur-Antunes-1/Jogo_AED.git
 
     ```  
 ### 3\. Chave de API (Obrigatório)
