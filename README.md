@@ -131,7 +131,7 @@ O compilador não cria pastas automaticamente. Você precisa criar a pasta `buil
 3.  **Execute o comando de compilação**:
 
     ```
-    gcc src/main.c src/cJSON.c -o build/meujogo.exe -Ilib/include -Llib/lib -lSDL3 -lSDL3_ttf -lcurl -lm -mwindows
+    gcc src/main.c src/game.c src/leaderboard.c src/string_utils.c src/text_utils.c src/render_utils.c src/ai_service.c src/states/menu_state.c src/states/playing_state.c src/states/scoring_state.c src/states/leaderboard_state.c src/states/options_state.c src/cJSON.c -Isrc -Ilib/include -Llib/lib -lSDL3 -lSDL3_ttf -lcurl -lm -mwindows -o build/meujogo.exe
 
     ```
 
