@@ -35,7 +35,7 @@ Atualmente, o projeto implementa as seguintes funcionalidades:
 
 *   **Tela de Placar:** Exibe um placar de líderes (Top 5), gerenciado por uma  **Lista Duplamente Encadeada Ordenada**.
 
-* **Tela de Pontuação:** (Placeholder) Exibe as respostas da rodada e uma pontuação simulada, atualizando o placar.
+* **Tela de Pontuação:** Mostra o julgamento real da IA item a item, atualiza o placar e (com o jogo compilado em modo console) imprime no terminal o veredito bruto recebido da API.
 
 * **Interface:** Resolução de 1280x720 com layout organizado e uso de duas fontes.
 
@@ -128,12 +128,14 @@ O compilador não cria pastas automaticamente. Você precisa criar a pasta `buil
 
     ```
 
-3.  **Execute o comando de compilação**:
+3.  **Execute o comando de compilação** (mantém o console aberto para ver logs da IA):
 
     ```
     gcc src/main.c src/game.c src/leaderboard.c src/string_utils.c src/text_utils.c src/render_utils.c src/ai_service.c src/states/menu_state.c src/states/playing_state.c src/states/scoring_state.c src/states/leaderboard_state.c src/states/options_state.c src/cJSON.c -Isrc -Ilib/include -Llib/lib -lSDL3 -lSDL3_ttf -lcurl -lm -mconsole -o build/meujogo.exe
 
     ```
+
+    > Prefere esconder o console? Troque `-mconsole` por `-mwindows` (perde os logs de julgamento e diagnósticos).
 
 ### 5\. Executando o Jogo
 
