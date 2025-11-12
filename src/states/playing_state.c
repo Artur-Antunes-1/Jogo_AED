@@ -25,6 +25,34 @@ typedef struct InputNode {
     struct InputNode* next;
 } InputNode;
 
+static InputNode* createInputList(GameContext* context,
+                                  const char* chosenThemes[],
+                                  float labelX,
+                                  float inputYStart,
+                                  float inputSpacing,
+                                  float textPaddingY,
+                                  float inputX,
+                                  float inputWidth,
+                                  float inputHeight,
+                                  SDL_Color labelColor);
+
+static void updateActiveInputTexture(GameContext* context,
+                                     InputNode* activeNode,
+                                     float textPaddingY,
+                                     SDL_Color textColor);
+
+static void renderInputList(GameContext* context,
+                            InputNode* headInput,
+                            InputNode* activeNode,
+                            SDL_Color inputBg,
+                            Uint64 ticks);
+
+static void saveInputsToContext(GameContext* context,
+                                InputNode* headInput,
+                                const char* chosenThemes[]);
+
+static InputNode* advanceToNextInput(InputNode* current);
+
 static void destroyInputList(InputNode* head) {
     if (!head) {
         return;
@@ -43,6 +71,150 @@ static void destroyInputList(InputNode* head) {
         free(current);
         current = nextNode;
     } while (current != firstNode);
+}
+
+static InputNode* createInputList(GameContext* context,
+                                  const char* chosenThemes[],
+                                  float labelX,
+                                  float inputYStart,
+                                  float inputSpacing,
+                                  float textPaddingY,
+                                  float inputX,
+                                  float inputWidth,
+                                  float inputHeight,
+                                  SDL_Color labelColor) {
+    InputNode* headInput = NULL;
+    InputNode* prevInput = NULL;
+
+    for (int i = 0; i < NUM_THEMES; i++) {
+        InputNode* currentInput = (InputNode*)malloc(sizeof(InputNode));
+        if (!currentInput) {
+            destroyInputList(headInput);
+            return NULL;
+        }
+        currentInput->next = NULL;
+
+        InputField* field = &(currentInput->field);
+        field->text[0] = '\0';
+        field->texture = NULL;
+        field->labelTexture = NULL;
+
+        char label[100];
+        sprintf(label, "%s:", chosenThemes[i]);
+        createTextTexture(context, 0, label,
+                          &(field->labelTexture), &(field->labelRect),
+                          (int)labelX, (int)(inputYStart + (i * inputSpacing) + textPaddingY), labelColor);
+
+        field->inputBoxRect.x = inputX;
+        field->inputBoxRect.y = inputYStart + (i * inputSpacing);
+        field->inputBoxRect.w = inputWidth;
+        field->inputBoxRect.h = inputHeight;
+        field->rect.x = inputX + 10;
+        field->rect.y = inputYStart + (i * inputSpacing) + textPaddingY;
+        field->rect.w = 0;
+        field->rect.h = 0;
+
+        if (headInput == NULL) {
+            headInput = currentInput;
+        } else {
+            prevInput->next = currentInput;
+        }
+        prevInput = currentInput;
+    }
+
+    if (prevInput != NULL) {
+        prevInput->next = headInput;
+    }
+
+    return headInput;
+}
+
+static void updateActiveInputTexture(GameContext* context,
+                                     InputNode* activeNode,
+                                     float textPaddingY,
+                                     SDL_Color textColor) {
+    if (!context || !activeNode) {
+        return;
+    }
+
+    createTextTexture(context, 0, activeNode->field.text,
+                      &(activeNode->field.texture), &(activeNode->field.rect),
+                      (int)(activeNode->field.inputBoxRect.x + 10),
+                      (int)(activeNode->field.inputBoxRect.y + textPaddingY),
+                      textColor);
+}
+
+static void renderInputList(GameContext* context,
+                            InputNode* headInput,
+                            InputNode* activeNode,
+                            SDL_Color inputBg,
+                            Uint64 ticks) {
+    if (!context || !headInput) {
+        return;
+    }
+
+    InputNode* tempNode = headInput;
+    do {
+        InputField* field = &(tempNode->field);
+        SDL_SetRenderDrawColor(context->renderer, inputBg.r, inputBg.g, inputBg.b, inputBg.a);
+        SDL_RenderFillRect(context->renderer, &(field->inputBoxRect));
+        SDL_RenderTexture(context->renderer, field->labelTexture, NULL, &(field->labelRect));
+        SDL_RenderTexture(context->renderer, field->texture, NULL, &(field->rect));
+
+        if (tempNode == activeNode) {
+            SDL_FRect cursorRect;
+            if (strlen(field->text) == 0) {
+                if ((ticks / 500) % 2 == 0) {
+                    cursorRect.x = field->inputBoxRect.x + 10;
+                    cursorRect.y = field->inputBoxRect.y + (field->inputBoxRect.h - 30) / 2;
+                    cursorRect.w = 10;
+                    cursorRect.h = 30;
+                    SDL_SetRenderDrawColor(context->renderer, 255, 255, 255, 255);
+                    SDL_RenderFillRect(context->renderer, &cursorRect);
+                }
+            } else {
+                if ((ticks / 500) % 2 == 0) {
+                    cursorRect.x = field->rect.x + field->rect.w + 5;
+                    cursorRect.y = field->inputBoxRect.y + (field->inputBoxRect.h - 30) / 2;
+                    cursorRect.w = 10;
+                    cursorRect.h = 30;
+                    SDL_SetRenderDrawColor(context->renderer, 255, 255, 255, 255);
+                    SDL_RenderFillRect(context->renderer, &cursorRect);
+                }
+            }
+            SDL_SetRenderDrawColor(context->renderer,
+                                   context->colors.titleColor.r,
+                                   context->colors.titleColor.g,
+                                   context->colors.titleColor.b,
+                                   255);
+            SDL_RenderRect(context->renderer, &(field->inputBoxRect));
+        }
+        tempNode = tempNode->next;
+    } while (tempNode != headInput);
+}
+
+static void saveInputsToContext(GameContext* context,
+                                InputNode* headInput,
+                                const char* chosenThemes[]) {
+    if (!context || !headInput) {
+        return;
+    }
+
+    InputNode* tempNode = headInput;
+    int i = 0;
+    do {
+        strcpy(context->lastThemes[i], chosenThemes[i]);
+        strcpy(context->lastAnswers[i], tempNode->field.text);
+        tempNode = tempNode->next;
+        i++;
+    } while (tempNode != headInput && i < NUM_THEMES);
+}
+
+static InputNode* advanceToNextInput(InputNode* current) {
+    if (!current) {
+        return NULL;
+    }
+    return current->next;
 }
 
 GameState runPlaying(GameContext* context) {
@@ -169,10 +341,6 @@ GameState runPlaying(GameContext* context) {
     int topRowY = 50;
     createTextTexture(context, 1, letterText, &letterTexture, &letterRect, 50, topRowY, white);
 
-    InputNode* headInput = NULL;
-    InputNode* currentInput = NULL;
-    InputNode* prevInput = NULL;
-
     float inputYStart = 150.0f;
     float inputHeight = 60.0f;
     float inputSpacing = 80.0f;
@@ -180,47 +348,21 @@ GameState runPlaying(GameContext* context) {
     float inputX = 600.0f;
     float inputWidth = 850.0f;
     float textPaddingY = (inputHeight - TTF_GetFontHeight(context->font_body)) / 2.0f;
-
-    for (int i = 0; i < NUM_THEMES; i++) {
-        currentInput = (InputNode*)malloc(sizeof(InputNode));
-        if (!currentInput) {
-            free(ai_response);
-            destroyInputList(headInput);
-            SDL_DestroyTexture(letterTexture);
-            SDL_DestroyTexture(timerTexture);
-            return STATE_EXIT;
-        }
-        currentInput->next = NULL;
-
-        InputField* field = &(currentInput->field);
-        field->text[0] = '\0';
-        field->texture = NULL;
-        field->labelTexture = NULL;
-
-        char label[100];
-        sprintf(label, "%s:", chosenThemes[i]);
-        createTextTexture(context, 0, label,
-                          &(field->labelTexture), &(field->labelRect),
-                          (int)labelX, (int)(inputYStart + (i * inputSpacing) + textPaddingY), gray);
-
-        field->inputBoxRect.x = inputX;
-        field->inputBoxRect.y = inputYStart + (i * inputSpacing);
-        field->inputBoxRect.w = inputWidth;
-        field->inputBoxRect.h = inputHeight;
-        field->rect.x = inputX + 10;
-        field->rect.y = inputYStart + (i * inputSpacing) + textPaddingY;
-        field->rect.w = 0;
-        field->rect.h = 0;
-
-        if (headInput == NULL) {
-            headInput = currentInput;
-        } else {
-            prevInput->next = currentInput;
-        }
-        prevInput = currentInput;
-    }
-    if (prevInput != NULL) {
-        prevInput->next = headInput;
+    InputNode* headInput = createInputList(context,
+                                           chosenThemes,
+                                           labelX,
+                                           inputYStart,
+                                           inputSpacing,
+                                           textPaddingY,
+                                           inputX,
+                                           inputWidth,
+                                           inputHeight,
+                                           gray);
+    if (!headInput) {
+        free(ai_response);
+        SDL_DestroyTexture(letterTexture);
+        SDL_DestroyTexture(timerTexture);
+        return STATE_EXIT;
     }
 
     InputNode* activeNode = headInput;
@@ -252,7 +394,7 @@ GameState runPlaying(GameContext* context) {
                     activeNode->field.text[strlen(activeNode->field.text) - 1] = '\0';
                     textChanged = 1;
                 } else if (event.key.key == SDLK_TAB) {
-                    activeNode = activeNode->next;
+                    activeNode = advanceToNextInput(activeNode);
                 }
             } else if (event.type == SDL_EVENT_TEXT_INPUT) {
                 if (strlen(activeNode->field.text) + strlen(event.text.text) < MAX_INPUT_LENGTH) {
@@ -262,7 +404,8 @@ GameState runPlaying(GameContext* context) {
             }
         }
 
-        Uint64 elapsedMs = SDL_GetTicks() - startTime;
+        Uint64 currentTicks = SDL_GetTicks();
+        Uint64 elapsedMs = currentTicks - startTime;
         int secondsLeft = (int)((ROUND_DURATION_MS - elapsedMs) / 1000);
 
         if (elapsedMs >= ROUND_DURATION_MS) {
@@ -282,10 +425,7 @@ GameState runPlaying(GameContext* context) {
         }
 
         if (textChanged) {
-            createTextTexture(context, 0, activeNode->field.text,
-                              &(activeNode->field.texture), &(activeNode->field.rect),
-                              (int)(activeNode->field.inputBoxRect.x + 10),
-                              (int)(activeNode->field.inputBoxRect.y + textPaddingY), white);
+            updateActiveInputTexture(context, activeNode, textPaddingY, white);
         }
 
         SDL_SetRenderDrawColor(renderer, context->colors.bgColor.r, context->colors.bgColor.g, context->colors.bgColor.b, 255);
@@ -294,54 +434,13 @@ GameState runPlaying(GameContext* context) {
         SDL_RenderTexture(renderer, letterTexture, NULL, &letterRect);
         SDL_RenderTexture(renderer, timerTexture, NULL, &timerRect);
 
-        InputNode* tempNode = headInput;
-        do {
-            InputField* field = &(tempNode->field);
-            SDL_SetRenderDrawColor(renderer, inputBg.r, inputBg.g, inputBg.b, inputBg.a);
-            SDL_RenderFillRect(renderer, &(field->inputBoxRect));
-            SDL_RenderTexture(renderer, field->labelTexture, NULL, &(field->labelRect));
-            SDL_RenderTexture(renderer, field->texture, NULL, &(field->rect));
-
-            if (tempNode == activeNode) {
-                SDL_FRect cursorRect;
-                if (strlen(field->text) == 0) {
-                    if ((SDL_GetTicks() / 500) % 2 == 0) {
-                        cursorRect.x = field->inputBoxRect.x + 10;
-                        cursorRect.y = field->inputBoxRect.y + (field->inputBoxRect.h - 30) / 2;
-                        cursorRect.w = 10;
-                        cursorRect.h = 30;
-                        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-                        SDL_RenderFillRect(renderer, &cursorRect);
-                    }
-                } else {
-                    if ((SDL_GetTicks() / 500) % 2 == 0) {
-                        cursorRect.x = field->rect.x + field->rect.w + 5;
-                        cursorRect.y = field->inputBoxRect.y + (field->inputBoxRect.h - 30) / 2;
-                        cursorRect.w = 10;
-                        cursorRect.h = 30;
-                        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-                        SDL_RenderFillRect(renderer, &cursorRect);
-                    }
-                }
-                SDL_SetRenderDrawColor(renderer, context->colors.titleColor.r, context->colors.titleColor.g, context->colors.titleColor.b, 255);
-                SDL_RenderRect(renderer, &(field->inputBoxRect));
-            }
-            tempNode = tempNode->next;
-        } while (tempNode != headInput);
-
+        renderInputList(context, headInput, activeNode, inputBg, currentTicks);
         SDL_RenderPresent(renderer);
     }
 
     if (nextState == STATE_SCORING) {
         context->lastLetter = chosenLetter;
-        InputNode* tempNode = headInput;
-        int i = 0;
-        do {
-            strcpy(context->lastThemes[i], chosenThemes[i]);
-            strcpy(context->lastAnswers[i], tempNode->field.text);
-            tempNode = tempNode->next;
-            i++;
-        } while (tempNode != headInput && i < NUM_THEMES);
+        saveInputsToContext(context, headInput, chosenThemes);
     }
 
     SDL_StopTextInput(context->window);

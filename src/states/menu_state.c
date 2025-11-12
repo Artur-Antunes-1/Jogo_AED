@@ -29,10 +29,10 @@ GameState runMenu(GameContext* context) {
     SDL_FRect titleRect;
     createTextTexture(context, 1, "Jogo de Adedonha (STOP!)", &titleTexture, &titleRect, 0, 100, titleColor);
 
-    SDL_Texture* playTextures[2]; SDL_FRect playRects[2];
-    SDL_Texture* boardTextures[2]; SDL_FRect boardRects[2];
-    SDL_Texture* optionsTextures[2]; SDL_FRect optionsRects[2];
-    SDL_Texture* exitTextures[2]; SDL_FRect exitRects[2];
+    SDL_Texture* playTextures[2] = {NULL, NULL}; SDL_FRect playRects[2];
+    SDL_Texture* boardTextures[2] = {NULL, NULL}; SDL_FRect boardRects[2];
+    SDL_Texture* optionsTextures[2] = {NULL, NULL}; SDL_FRect optionsRects[2];
+    SDL_Texture* exitTextures[2] = {NULL, NULL}; SDL_FRect exitRects[2];
 
     createTextTexture(context, 0, "Iniciar Jogo", &playTextures[0], &playRects[0], 0, 0, textColor);
     createTextTexture(context, 0, "Iniciar Jogo", &playTextures[1], &playRects[1], 0, 0, textSelectedColor);

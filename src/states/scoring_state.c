@@ -10,6 +10,22 @@
 #include "leaderboard.h"
 #include "text_utils.h"
 
+static void trimTrailingWhitespace(char* str) {
+    if (!str) {
+        return;
+    }
+    size_t len = strlen(str);
+    while (len > 0) {
+        char c = str[len - 1];
+        if (c == ' ' || c == '\n' || c == '\r' || c == '\t') {
+            str[len - 1] = '\0';
+            len--;
+        } else {
+            break;
+        }
+    }
+}
+
 GameState runScoring(GameContext* context) {
     if (!context) {
         return STATE_EXIT;
@@ -56,12 +72,15 @@ GameState runScoring(GameContext* context) {
 
     char* ai_response = call_gemini_api(validation_prompt);
     if (ai_response) {
+        SDL_Log("IA (validação) respondeu: %s", ai_response);
         char* token = strtok(ai_response, ",");
         int i = 0;
         while (token != NULL && i < NUM_THEMES) {
             while (*token == ' ' || *token == '\n') {
                 token++;
             }
+            trimTrailingWhitespace(token);
+            SDL_Log("Tema %d: resposta '%s' => AI '%s'", i, context->lastAnswers[i], token);
 
             if (SDL_strncasecmp(token, "Sim", 3) == 0) {
                 scores[i] = 10;
