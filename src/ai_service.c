@@ -2,6 +2,7 @@
 
 #include "config.h"
 
+#include <SDL3/SDL.h>
 #include <curl/curl.h>
 #include "cJSON.h"
 
@@ -44,91 +45,146 @@ static char* duplicateString(const char* source) {
     return copy;
 }
 
-char* call_gemini_api(const char* prompt) {
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        fprintf(stderr, "Erro ao iniciar o cURL\n");
-        return NULL;
-    }
+static char* try_model_with_retry(const char* model_name, const char* prompt, int max_retries, Uint32 base_delay_ms) {
+    for (int attempt = 0; attempt < max_retries; attempt++) {
+        CURL* curl = curl_easy_init();
+        if (!curl) {
+            fprintf(stderr, "Erro ao iniciar o cURL\n");
+            return NULL;
+        }
 
-    MemoryStruct chunk = { .memory = (char*)malloc(1), .size = 0 };
-    if (!chunk.memory) {
-        curl_easy_cleanup(curl);
-        return NULL;
-    }
+        MemoryStruct chunk = { .memory = (char*)malloc(1), .size = 0 };
+        if (!chunk.memory) {
+            curl_easy_cleanup(curl);
+            return NULL;
+        }
 
-    char api_url[200];
-    sprintf(api_url, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=%s", API_KEY);
+        char api_url[200];
+        sprintf(api_url, "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", model_name, API_KEY);
 
-    cJSON* json_payload = cJSON_CreateObject();
-    cJSON* contents = cJSON_CreateArray();
-    cJSON* part_obj = cJSON_CreateObject();
-    cJSON* parts_array = cJSON_CreateArray();
-    cJSON* text_obj = cJSON_CreateObject();
+        cJSON* json_payload = cJSON_CreateObject();
+        cJSON* contents = cJSON_CreateArray();
+        cJSON* part_obj = cJSON_CreateObject();
+        cJSON* parts_array = cJSON_CreateArray();
+        cJSON* text_obj = cJSON_CreateObject();
 
-    cJSON_AddStringToObject(text_obj, "text", prompt);
-    cJSON_AddItemToArray(parts_array, text_obj);
-    cJSON_AddItemToObject(part_obj, "parts", parts_array);
-    cJSON_AddItemToArray(contents, part_obj);
-    cJSON_AddItemToObject(json_payload, "contents", contents);
+        cJSON_AddStringToObject(text_obj, "text", prompt);
+        cJSON_AddItemToArray(parts_array, text_obj);
+        cJSON_AddItemToObject(part_obj, "parts", parts_array);
+        cJSON_AddItemToArray(contents, part_obj);
+        cJSON_AddItemToObject(json_payload, "contents", contents);
 
-    char* json_string = cJSON_Print(json_payload);
+        char* json_string = cJSON_Print(json_payload);
 
-    struct curl_slist* headers = NULL;
-    headers = curl_slist_append(headers, "Content-Type: application/json");
+        struct curl_slist* headers = NULL;
+        headers = curl_slist_append(headers, "Content-Type: application/json");
 
-    curl_easy_setopt(curl, CURLOPT_URL, api_url);
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_string);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeMemoryCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "libcurl-agent/1.0");
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_URL, api_url);
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_string);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeMemoryCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "libcurl-agent/1.0");
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
 
-    CURLcode res = curl_easy_perform(curl);
-    char* response_text = NULL;
+        CURLcode res = curl_easy_perform(curl);
+        char* response_text = NULL;
+        int shouldRetry = 0;
 
-    if (res != CURLE_OK) {
-        fprintf(stderr, "curl_easy_perform() falhou: %s\n", curl_easy_strerror(res));
-    } else {
-        cJSON* json_response = cJSON_Parse(chunk.memory);
-        if (json_response == NULL) {
-            fprintf(stderr, "Erro ao analisar JSON: %s\n", cJSON_GetErrorPtr());
+        if (res != CURLE_OK) {
+            fprintf(stderr, "curl_easy_perform() falhou (tentativa %d): %s\n", attempt + 1, curl_easy_strerror(res));
+            if (res == CURLE_OPERATION_TIMEDOUT ||
+                res == CURLE_COULDNT_CONNECT ||
+                res == CURLE_COULDNT_RESOLVE_HOST) {
+                shouldRetry = 1;
+            }
         } else {
-            cJSON* error = cJSON_GetObjectItem(json_response, "error");
-            if (error) {
-                cJSON* errorMessage = cJSON_GetObjectItem(error, "message");
-                if (cJSON_IsString(errorMessage)) {
-                    fprintf(stderr, "ERRO DA API: %s\n", errorMessage->valuestring);
-                }
+            cJSON* json_response = cJSON_Parse(chunk.memory);
+            if (json_response == NULL) {
+                fprintf(stderr, "Erro ao analisar JSON: %s\n", cJSON_GetErrorPtr());
             } else {
-                cJSON* candidates = cJSON_GetObjectItem(json_response, "candidates");
-                if (cJSON_IsArray(candidates)) {
-                    cJSON* candidate = cJSON_GetArrayItem(candidates, 0);
-                    if (candidate) {
-                        cJSON* content = cJSON_GetObjectItem(candidate, "content");
-                        cJSON* parts = cJSON_GetObjectItem(content, "parts");
-                        if (cJSON_IsArray(parts)) {
-                            cJSON* part = cJSON_GetArrayItem(parts, 0);
-                            cJSON* text = cJSON_GetObjectItem(part, "text");
-                            if (cJSON_IsString(text) && (text->valuestring != NULL)) {
-                                response_text = duplicateString(text->valuestring);
+                cJSON* error = cJSON_GetObjectItem(json_response, "error");
+                if (error) {
+                    cJSON* errorMessage = cJSON_GetObjectItem(error, "message");
+                    if (cJSON_IsString(errorMessage)) {
+                        fprintf(stderr, "ERRO DA API: %s\n", errorMessage->valuestring);
+                        if (strstr(errorMessage->valuestring, "overloaded") != NULL ||
+                            strstr(errorMessage->valuestring, "busy") != NULL) {
+                            shouldRetry = 1;
+                        }
+                    }
+                } else {
+                    cJSON* candidates = cJSON_GetObjectItem(json_response, "candidates");
+                    if (cJSON_IsArray(candidates)) {
+                        cJSON* candidate = cJSON_GetArrayItem(candidates, 0);
+                        if (candidate) {
+                            cJSON* content = cJSON_GetObjectItem(candidate, "content");
+                            cJSON* parts = cJSON_GetObjectItem(content, "parts");
+                            if (cJSON_IsArray(parts)) {
+                                cJSON* part = cJSON_GetArrayItem(parts, 0);
+                                cJSON* text = cJSON_GetObjectItem(part, "text");
+                                if (cJSON_IsString(text) && (text->valuestring != NULL)) {
+                                    response_text = duplicateString(text->valuestring);
+                                }
                             }
                         }
                     }
                 }
+                cJSON_Delete(json_response);
             }
-            cJSON_Delete(json_response);
+        }
+
+        curl_easy_cleanup(curl);
+        curl_slist_free_all(headers);
+        free(json_string);
+        cJSON_Delete(json_payload);
+        free(chunk.memory);
+
+        if (response_text != NULL) {
+            return response_text;
+        }
+
+        if (shouldRetry && attempt < max_retries - 1) {
+            Uint32 delayMs = base_delay_ms << attempt;
+            SDL_Delay(delayMs);
+            continue;
+        } else {
+            break;
         }
     }
 
-    curl_easy_cleanup(curl);
-    curl_slist_free_all(headers);
-    free(json_string);
-    cJSON_Delete(json_payload);
-    free(chunk.memory);
+    return NULL;
+}
 
-    return response_text;
+char* call_gemini_api(const char* prompt) {
+    const int MAX_RETRIES = 2;
+    const Uint32 BASE_DELAY_MS = 500;
+    
+    // Lista de modelos em ordem de preferência (mais estáveis primeiro)
+    const char* models[] = {
+        "gemini-1.5-flash",      // Mais estável, menos sobrecarga
+        "gemini-2.0-flash",      // Versão mais nova, rápido
+        "gemini-1.5-pro",        // Mais capaz, backup
+        "gemini-2.5-flash"       // Última tentativa (geralmente sobrecarregado)
+    };
+    const int num_models = sizeof(models) / sizeof(models[0]);
+
+    for (int model_idx = 0; model_idx < num_models; model_idx++) {
+        fprintf(stderr, "Tentando modelo: %s\n", models[model_idx]);
+        char* response = try_model_with_retry(models[model_idx], prompt, MAX_RETRIES, BASE_DELAY_MS);
+        
+        if (response != NULL) {
+            fprintf(stderr, "Sucesso com modelo: %s\n", models[model_idx]);
+            return response;
+        }
+        
+        if (model_idx < num_models - 1) {
+            SDL_Delay(300); // Pequeno delay entre tentativas de modelos diferentes
+        }
+    }
+
+    fprintf(stderr, "Todos os modelos falharam após tentativas\n");
+    return NULL;
 }
 
 void list_available_models(void) {
